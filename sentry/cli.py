@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import sys
 from pathlib import Path
@@ -97,13 +98,66 @@ def interactive_menu() -> list[str] | None:
         console.print("[yellow]잘못된 번호입니다.[/]")
 
 
-def _pause_if_double_clicked() -> None:
-    """Keep the terminal window open when we were started from Finder/Explorer."""
+def _owns_console() -> bool:
+    """Windows: True when this program is the only thing in its console window
+    (started by double-click), so the window would vanish the moment we exit."""
+    if not IS_WINDOWS:
+        return True
     try:
-        if sys.stdin.isatty():
-            input("\n엔터를 누르면 창이 닫힙니다...")
+        import ctypes
+        buf = (ctypes.c_uint * 16)()
+        n = ctypes.windll.kernel32.GetConsoleProcessList(buf, 16)  # type: ignore[attr-defined]
+        return n <= 2          # PyInstaller one-file = bootloader + child; a parent cmd/PowerShell makes 3+
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _close_terminal_window_later() -> None:
+    """macOS: Terminal keeps a '[Process completed]' window after a Finder-launched
+    program exits.  Spawn a detached helper that waits for our shell to finish and
+    closes that window - but only if nothing else (an interactive shell) is left in it."""
+    from .utils import IS_MACOS
+    if not IS_MACOS or os.environ.get("TERM_PROGRAM") != "Apple_Terminal":
+        return
+    try:
+        tty = os.ttyname(sys.stdin.fileno())
+    except OSError:
+        return
+    # the login shell saves its session history before exiting, which can take a few
+    # seconds; poll until the tab is empty, then close it (never while a shell is alive)
+    script = f'''
+repeat 20 times
+  delay 0.5
+  tell application "Terminal"
+    repeat with w in windows
+      try
+        repeat with t in tabs of w
+          if tty of t is "{tty}" and (count of processes of t) is 0 then
+            if (count of tabs of w) is 1 then close w
+            return
+          end if
+        end repeat
+      end try
+    end repeat
+  end tell
+end repeat'''
+    try:
+        import subprocess
+        subprocess.Popen(["osascript", "-e", script], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def _pause_if_double_clicked() -> None:
+    """Keep the terminal window open when we were started from Finder/Explorer, then close it."""
+    if not sys.stdin.isatty() or not _owns_console():
+        return
+    try:
+        input("\n엔터를 누르면 창이 닫힙니다...")
     except (EOFError, KeyboardInterrupt):
         pass
+    _close_terminal_window_later()
 
 
 def _only_global_opts(argv: list[str]) -> bool:
