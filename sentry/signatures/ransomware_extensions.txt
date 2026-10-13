@@ -1,0 +1,9 @@
+# Extensions commonly appended to files by ransomware (lowercase, with leading dot).
+# Only counted when the file body looks encrypted (random bytes) or the original
+# document extension is still visible (report.docx.locked) - see scanner/heuristics.py.
+# Generic markers
+.locked .locky .encrypted .crypted .crypt .cryp1 .crypz .enc .encrypt .crypto .cryptolocker
+# Family-specific (widely documented)
+.wncry .wcry .wnry .cerber .ryk .ryuk .conti .lockbit .akira .phobos .dharma .makop .djvu .zepto .odin
+.thor .osiris .sage .globe .magniber .hive .clop .egregor .avdn .babyk .revil .sodinokibi .nefilim .mespinoza
+.rapid .nozelesn .gandcrab .krab .stop .puma .adobe .combo .arena .bip .onion .wallet .zzz .xxx .kkk

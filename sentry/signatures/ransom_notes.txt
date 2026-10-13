@@ -1,0 +1,13 @@
+# Regex patterns (case-insensitive) matched against file *names* that look like ransom notes.
+# A name match alone never produces a finding; the file must also contain ransom wording.
+^(how|where)[_\- ]?to[_\- ]?(decrypt|restore|recover|unlock|get)[_\- ]?.*\.(txt|html?|hta|rtf)$
+^(read|readme|read_me|read-me)[_\-]?(_?me)?[_\- ]?(for)?[_\- ]?(decrypt|restore|recover|unlock|now|first).*\.(txt|html?|hta|rtf)$
+^_readme\.txt$
+^(decrypt|restore|recover|unlock)[_\- ]?(my|your|the)?[_\- ]?files?.*\.(txt|html?|hta|rtf)$
+^(files?|data)[_\- ]?(are|were|have[_\- ]been)[_\- ]?(encrypted|locked).*\.(txt|html?|hta|rtf)$
+^(your|all)[_\- ]?(files|data|documents)[_\- ]?.*(encrypted|locked).*\.(txt|html?|hta|rtf)$
+^(info|help|instructions?|attention)[_\- ]?(decrypt|restore|recover|unlock|ransom).*\.(txt|html?|hta|rtf)$
+^#?[_\- ]?(decrypt|unlock|recover)[_\- ]?(files?|data|instructions?)[_\- #]?.*\.(txt|html?|hta|rtf)$
+^.*ransom.*\.(txt|html?|hta|rtf)$
+^.*(\.lockbit|conti_readme|akira_readme|ryukreadme|@please_read_me@|wannacry|wana[_ ]?decrypt).*$
+^(restore|recover)[_\- ](my|your)[_\- ]files\.(txt|html?)$

@@ -1,0 +1,5 @@
+# Known-malicious SHA-256 hashes, one per line (lowercase hex), optional label after whitespace.
+# Lines starting with '#' are ignored.
+# Only the verifiable EICAR test-file hash ships by default.
+# Run `sentry update` to pull current hashes from public threat feeds into ~/.sentry-av/hashes_extra.txt
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f EICAR-Test-File
