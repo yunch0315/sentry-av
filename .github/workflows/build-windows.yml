@@ -1,0 +1,38 @@
+name: build-windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Build sentry.exe
+        shell: cmd
+        run: |
+          pyinstaller --noconfirm --clean --onefile --name sentry ^
+            --add-data "sentry\signatures;sentry\signatures" ^
+            --hidden-import sentry.realtime --hidden-import sentry.scanner ^
+            --collect-submodules sentry ^
+            --uac-admin ^
+            sentry_main.py
+      - name: Smoke test (self test, no elevation)
+        shell: cmd
+        run: dist\sentry.exe --no-elevate selftest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentry-windows-x64
+          path: dist/sentry.exe
+          if-no-files-found: error
