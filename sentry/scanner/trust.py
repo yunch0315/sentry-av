@@ -70,7 +70,7 @@ class TrustChecker:
         seal = self._load_seal(root)
         if not seal:
             return False
-        rel = os.path.relpath(path, root)
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
         entry = seal.get(rel)
         if entry is None:
             return False
