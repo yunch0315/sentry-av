@@ -23,6 +23,7 @@ Windows / macOS 공용 백신 + 랜섬웨어 차단 도구 (Python 3.10+). Windo
 **B. 단일 실행 파일 (Python 불필요)**
 
 - 빌드는 **대상 OS 위에서** 해야 합니다. Windows: `build.bat` → `dist\sentry.exe` (UAC 자동 요청 매니페스트 포함). macOS/Linux: `./build.sh` → `dist/sentry`.
+- Windows PC 가 없으면 **GitHub Actions** 로 만듭니다. `.github/workflows/build-windows.yml` 이 `main` 에 푸시될 때마다 Windows 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64` 아티팩트(`sentry.exe`)를 올립니다. 받기: `gh run download -n sentry-windows-x64 -D <폴더>` (저장소 `yunch0315/sentry-av`, 비공개). PyInstaller 는 교차 빌드를 지원하지 않으므로 Mac 에서 직접 exe 를 만들 수는 없습니다. 수동 실행은 Actions 탭의 Run workflow.
 - 만들어진 파일 하나만 복사하면 됩니다. 같은 OS·CPU 아키텍처에서만 동작합니다 (`sentry-macos-arm64` 는 Apple Silicon Mac 전용, Intel Mac 은 그 Mac 에서 `./build.sh`).
 - 사용법은 동일: `sentry.exe scan`, `sentry.exe monitor`, `./sentry-macos-arm64 selftest` 등. macOS 에서 서명되지 않은 바이너리는 첫 실행 시 `xattr -d com.apple.quarantine ./sentry-macos-arm64` 가 필요할 수 있습니다.
 - Windows Defender/SmartScreen 이 서명 없는 새 exe 를 경고할 수 있습니다. 프로세스를 종료하고 파일을 격리하는 도구이므로 다른 백신의 예외 목록에 설치 폴더와 `%USERPROFILE%\.sentry-av` 를 넣어 두는 것이 좋습니다.
