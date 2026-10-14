@@ -5,12 +5,14 @@ from sentry import defender
 
 
 def test_exclusions_are_file_level_not_the_parent_folder(isolated_home, monkeypatch):
-    monkeypatch.setattr(defender, "exe_path", lambda: __import__("pathlib").Path("/opt/sentry/sentry"))
+    from pathlib import Path
+    exe = Path("/opt/sentry/sentry").resolve() if not sys.platform.startswith("win") else Path(r"C:\Sentry\sentry.exe")
+    monkeypatch.setattr(defender, "exe_path", lambda: exe)
     paths = defender.exclusion_paths()
-    assert "/opt/sentry/sentry" in paths                 # the exe file itself
-    assert "/opt/sentry" not in paths                    # never the parent folder
+    assert str(exe) in paths                             # the exe file itself
+    assert str(exe.parent) not in paths                  # never the parent folder
     assert str(isolated_home / "home" / ".sentry-av") in paths
-    assert defender.exclusion_process() == "sentry"
+    assert defender.exclusion_process() == exe.name
 
 
 def test_broad_install_dir_is_detected(monkeypatch):
