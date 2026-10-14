@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentry-av"
-version = "0.1.1"
+version = "0.1.2"
 description = "Cross-platform (Windows/macOS) antivirus and anti-ransomware tool with real-time blocking"
 requires-python = ">=3.10"
 dependencies = ["psutil>=5.9", "watchdog>=3.0", "rich>=13.0"]
