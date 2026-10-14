@@ -147,6 +147,12 @@ kill -INT %1; cat $T/home/.sentry-av/incidents.jsonl
 - 보안 취약점: 공개 이슈 대신 [SECURITY.md](SECURITY.md) 의 절차로 알려 주세요.
 - 개발 환경: `python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest` → `.venv/bin/python -m pytest -q`. PR 은 테스트와 함께 보내 주세요. 점수·휴리스틱 정책을 바꾸면 이 README 의 표도 같이 갱신합니다.
 
+## 라이선스
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md) — 개인 용도, 연구·학습, 비영리 단체·교육기관·공공기관 사용은 자유이며, 소스를 읽고 고치고 그 결과를 같은 조건으로 나눌 수 있습니다. **상업적 이용(회사 업무용 설치, 재판매, 유료 서비스 포함)은 별도 라이선스가 필요합니다.** 상업용 라이선스 문의는 Issues 또는 저장소 소유자 연락처로 보내 주세요.
+
+Required Notice: Copyright 2026 이윤창 (Lee Yun Chang) (https://github.com/yunch0315/sentry-av)
+
 ## 한계
 
 - 사용자 모드 도구입니다. 커널 드라이버/ESF 기반 제품처럼 쓰기를 **사전** 차단하지는 못하며, 감지 후 수백 ms 안에 종료하므로 그 사이 일부 파일은 암호화될 수 있습니다. 백업과 함께 사용하세요.

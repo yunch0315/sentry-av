@@ -7,6 +7,7 @@ name = "sentry-av"
 version = "0.1.4"
 description = "Cross-platform (Windows/macOS) antivirus and anti-ransomware tool with real-time blocking"
 readme = "README.md"
+license = {text = "PolyForm Noncommercial License 1.0.0"}
 requires-python = ">=3.10"
 dependencies = ["psutil>=5.9", "watchdog>=3.0", "rich>=13.0", "truststore>=0.9", "certifi"]
 
