@@ -330,15 +330,15 @@ class AutoUpdateThread(threading.Thread):
         self.interval = float(interval_hours or cfg.get("update_check_interval_hours", 24))
         self.first_delay = first_delay
         self.on_installed = on_installed
-        self._stop = threading.Event()
+        self._halt = threading.Event()   # not `_stop`: that is a Thread method used by join()
 
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
 
     def run(self) -> None:
-        if self._stop.wait(self.first_delay):
+        if self._halt.wait(self.first_delay):
             return
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             try:
                 if check_due(self.interval):
                     rel = self.updater.upgrade()
@@ -348,5 +348,5 @@ class AutoUpdateThread(threading.Thread):
                         return
             except Exception as e:  # noqa: BLE001
                 _LOG.warning("auto-update failed: %s", e)
-            if self._stop.wait(min(self.interval * 3600, 3600)):
+            if self._halt.wait(min(self.interval * 3600, 3600)):
                 return
