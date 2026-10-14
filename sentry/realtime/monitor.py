@@ -153,6 +153,11 @@ class RealtimeMonitor:
         self.remove_canaries()
         _LOG.info("real-time protection OFF")
 
+    def request_stop(self) -> None:
+        """Thread-safe: make run_forever() return (used by the self-updater)."""
+        self._stop.set()
+        self._wake.set()
+
     def run_forever(self) -> None:
         self.start()
 

@@ -1,0 +1,100 @@
+# Builds the single-file executables for every supported platform and publishes them
+# as a GitHub Release whenever a version tag (v1.2.3) is pushed.  The program's
+# `upgrade` command / monitor auto-update (sentry/selfupdate.py) downloads from here.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: sentry-windows-x64.exe
+            built: dist/sentry.exe
+          - os: macos-latest          # Apple Silicon runner
+            asset: sentry-macos-arm64
+            built: dist/sentry
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+      - name: Version must match the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(python -c 'import sentry; print(sentry.__version__)')"
+          echo "tag=$tag version=$ver"
+          [ "$tag" = "$ver" ] || { echo "sentry/__init__.py __version__ ($ver) != tag ($tag)"; exit 1; }
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          pyinstaller --noconfirm --clean --onefile --name sentry ^
+            --add-data "sentry\signatures;sentry\signatures" ^
+            --hidden-import sentry.realtime --hidden-import sentry.scanner ^
+            --collect-submodules sentry ^
+            --uac-admin ^
+            sentry_main.py
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --noconfirm --clean --onefile --name sentry \
+            --add-data "sentry/signatures:sentry/signatures" \
+            --hidden-import sentry.realtime --hidden-import sentry.scanner \
+            --collect-submodules sentry \
+            sentry_main.py
+      - name: Smoke test (self test, no elevation)
+        shell: bash
+        run: ./${{ matrix.built }} --no-elevate selftest
+      - name: Rename asset
+        shell: bash
+        run: mkdir -p out && cp "${{ matrix.built }}" "out/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd assets
+          sha256sum sentry-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" assets/* \
+            --repo "$GITHUB_REPOSITORY" --title "Sentry-AV $GITHUB_REF_NAME" --generate-notes
+      - uses: actions/upload-artifact@v4
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        with:
+          name: release-assets
+          path: assets/

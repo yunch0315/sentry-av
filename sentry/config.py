@@ -83,6 +83,11 @@ DEFAULTS: dict[str, Any] = {
     "signature_urls": [
         "https://bazaar.abuse.ch/export/txt/sha256/recent/",
     ],
+    # ---- program self-update (GitHub Releases, see selfupdate.py) ----
+    "update_repo": "yunch0315/sentry-av",
+    "auto_update": True,                # monitor: install new releases by itself and restart
+    "update_check_interval_hours": 24,  # how often to ask GitHub (menu/commands and monitor)
+    "update_token": "",                 # GitHub token; only needed while the repo is private
 }
 
 

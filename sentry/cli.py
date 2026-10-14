@@ -53,6 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("update", help="download hash signatures from configured feeds")
 
+    up = sub.add_parser("upgrade", help="update this program to the latest GitHub release")
+    up.add_argument("--check", action="store_true", help="only report whether a newer version exists")
+    up.add_argument("--yes", "-y", action="store_true", help="install without asking")
+
     w = sub.add_parser("whitelist", help="trusted processes / paths")
     ws = w.add_subparsers(dest="wcmd", required=True)
     ws.add_parser("list")
@@ -77,12 +81,15 @@ _MENU = [
     ("격리된 파일 목록", ["quarantine", "list"]),
     ("상태 / 설정 보기", ["status"]),
     ("자가 진단 (무해한 테스트 샘플 검사)", ["selftest"]),
+    ("프로그램 업데이트 (GitHub 최신 버전 확인·설치)", ["upgrade"]),
 ]
 
 
 def interactive_menu() -> list[str] | None:
     """Shown when launched without arguments (e.g. double-clicked). Returns argv or None to quit."""
-    console.print(f"[bold]Sentry-AV {__version__}[/]  Windows/macOS 백신 + 랜섬웨어 차단\n")
+    console.print(f"[bold]Sentry-AV {__version__}[/]  Windows/macOS 백신 + 랜섬웨어 차단")
+    _print_update_hint()
+    console.print()
     for i, (label, _) in enumerate(_MENU, 1):
         console.print(f"  [cyan]{i}[/]. {label}")
     console.print("  [cyan]0[/]. 종료\n")
@@ -96,6 +103,33 @@ def interactive_menu() -> list[str] | None:
         if choice.isdigit() and 1 <= int(choice) <= len(_MENU):
             return list(_MENU[int(choice) - 1][1])
         console.print("[yellow]잘못된 번호입니다.[/]")
+
+
+def _print_update_hint() -> None:
+    """One line under the banner when a newer release is known (from the last check)."""
+    from .selfupdate import load_state, is_newer
+    latest = load_state().get("latest") or ""
+    if latest and is_newer(latest):
+        console.print(f"[yellow]새 버전 {latest} 이(가) 있습니다 → 메뉴 {len(_MENU)}번 또는 `sentry upgrade`[/]")
+
+
+def _background_update_check(cfg) -> None:
+    """Throttled (once per update_check_interval_hours) GitHub check in a daemon thread;
+    never blocks or fails the command that triggered it."""
+    import threading
+    from .selfupdate import Updater, check_due
+    if not check_due(float(cfg.get("update_check_interval_hours", 24))):
+        return
+
+    def _run():
+        try:
+            rel = Updater(cfg).check()
+            if rel and rel.newer:
+                console.print(f"[yellow]새 버전 {rel.version} 이(가) 있습니다: `sentry upgrade` 로 설치[/]")
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_run, name="sentry-update-check", daemon=True).start()
 
 
 def _owns_console() -> bool:
@@ -190,6 +224,11 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(args.verbose, app_dir() / "sentry.log")
     cfg = load_config(args.config)
 
+    if args.cmd != "upgrade":
+        from .selfupdate import Updater
+        Updater(cfg).cleanup_backup()          # <exe>.old left by a previous self-update
+        _background_update_check(cfg)
+
     if args.cmd in NEEDS_ADMIN and not args.no_elevate and not is_admin():
         ensure_admin(argv, use_sudo=args.sudo)
 
@@ -201,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
 
     return {
         "scan": cmd_scan, "monitor": cmd_monitor, "quarantine": cmd_quarantine, "update": cmd_update,
-        "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
+        "upgrade": cmd_upgrade, "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
     }[args.cmd](args, cfg)
 
 
@@ -265,7 +304,24 @@ def cmd_monitor(args, cfg) -> int:
     console.print(f"[bold green]Sentry-AV real-time protection[/]  watching: {', '.join(mon.paths)}")
     console.print(f"canaries={'on' if mon.canary_enabled else 'off'}  aggressive={cfg.get('aggressive')}  "
                   f"dry_run={args.dry_run}  incidents -> {mon.responder.incident_log}   (Ctrl+C to stop)")
+    from .utils import is_frozen
+    auto = None
+    if cfg.get("auto_update", True) and is_frozen():
+        from .selfupdate import AutoUpdateThread, relaunch
+        installed = {}
+
+        def _on_installed(rel):
+            installed["rel"] = rel
+            mon.request_stop()
+
+        auto = AutoUpdateThread(cfg, _on_installed)
+        auto.start()
     mon.run_forever()
+    if auto:
+        auto.stop()
+        if installed.get("rel"):
+            console.print(f"[bold green]새 버전 {installed['rel'].version} 설치됨, 실시간 보호를 다시 시작합니다[/]")
+            relaunch()
     return 0
 
 
@@ -298,6 +354,56 @@ def cmd_update(args, cfg) -> int:
     res = update_signatures(cfg.signature_urls)
     console.print_json(json.dumps(res, ensure_ascii=False))
     return 0 if res["added"] or all("ok" in v for v in res["feeds"].values()) else 1
+
+
+def cmd_upgrade(args, cfg) -> int:
+    from .selfupdate import Updater, load_state, relaunch
+    from .utils import is_frozen
+    up = Updater(cfg)
+    console.print(f"현재 버전 {__version__}, GitHub {up.repo} 의 최신 릴리스를 확인합니다...")
+    rel = up.check()
+    if rel is None:
+        err = load_state().get("last_error") or ""
+        console.print("[red]릴리스 정보를 가져오지 못했습니다.[/] " + (f"({err})" if err else "")
+                      + "\n비공개 저장소라면 config.json 의 update_token 또는 SENTRY_GITHUB_TOKEN 이 필요합니다.")
+        return 1
+    if not rel.newer:
+        console.print(f"[green]최신 버전입니다.[/] (릴리스 {rel.tag})")
+        return 0
+    console.print(f"[yellow]새 버전 {rel.version} 이(가) 있습니다[/]  {rel.html_url}")
+    if rel.notes.strip():
+        console.print(rel.notes.strip()[:1500])
+    if args.check:
+        return 3
+    if not is_frozen():
+        console.print("[yellow]소스에서 실행 중입니다. `git pull` 로 갱신하세요.[/]")
+        return 3
+    if not args.yes and sys.stdin.isatty():
+        try:
+            if input("지금 설치할까요? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+                return 3
+        except (EOFError, KeyboardInterrupt):
+            return 3
+    with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=None),
+                  TimeElapsedColumn(), console=console, transient=True) as prog:
+        task = prog.add_task(f"downloading {rel.tag}", total=None)
+
+        def on_progress(done, total):
+            prog.update(task, completed=done, total=total or None)
+
+        try:
+            path = up.install(up.download(rel, on_progress))
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]업데이트 실패:[/] {e}")
+            return 1
+    console.print(f"[bold green]업데이트 완료[/] {__version__} → {rel.version}  ({path})")
+    if sys.stdin.isatty():
+        try:
+            if input("새 버전을 지금 실행할까요? [Y/n] ").strip().lower() in ("", "y", "yes"):
+                relaunch(["--no-elevate"] if "--no-elevate" in sys.argv else [])
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return 0
 
 
 def cmd_whitelist(args, cfg) -> int:

@@ -30,6 +30,19 @@ Windows / macOS 공용 백신 + 랜섬웨어 차단 도구 (Python 3.10+). Windo
 
 설정·격리·로그는 어느 방식이든 사용자 홈의 `.sentry-av` 폴더에 저장되므로 프로그램 폴더는 어디에 두어도 됩니다.
 
+## 자동 업데이트 (GitHub Releases)
+
+단일 실행 파일은 GitHub Releases 에서 **스스로 새 버전으로 교체**됩니다 (`sentry/selfupdate.py`).
+
+- **배포 측**: `./release.sh 0.2.0` 이 버전을 올리고 태그 `v0.2.0` 을 푸시합니다. `.github/workflows/release.yml` 이 Windows 러너와 Apple Silicon 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64.exe`, `sentry-macos-arm64`, `SHA256SUMS.txt` 를 Release 에 올립니다(태그와 `__version__` 이 다르면 실패). 진행 확인: `gh run watch`.
+- **설치된 프로그램 측**:
+  - 어떤 명령이든 실행하면 하루에 한 번(`update_check_interval_hours`) 백그라운드에서 최신 릴리스를 확인하고, 새 버전이 있으면 한 줄로 알립니다. 메뉴 화면에도 표시됩니다.
+  - `sentry upgrade` (메뉴 9번): 확인 → 다운로드 → `SHA256SUMS.txt` 와 대조 → 실행 파일을 원자적으로 교체(이전 파일은 `sentry.old` 로 남겼다가 다음 실행 때 삭제) → 새 버전 재실행. `--check` 는 확인만(새 버전 있으면 종료 코드 3), `--yes` 는 묻지 않음.
+  - **실시간 보호(`monitor`, 서비스 포함)** 는 `auto_update: true`(기본) 일 때 주기적으로 확인해 새 버전을 설치하고 **스스로 재시작**합니다(macOS 는 같은 PID 로 `execv`, Windows 는 새 프로세스 기동 후 종료 — 예약 작업/LaunchAgent 는 그대로 유지).
+  - 소스 체크아웃(`run.sh`/`run.bat`)에서는 교체하지 않고 `git pull` 을 안내합니다.
+- **비공개 저장소**: GitHub 의 Release API 는 비공개 저장소에서 토큰이 필요합니다. 테스트용으로는 환경변수 `SENTRY_GITHUB_TOKEN` 또는 `config.json` 의 `update_token` (해당 저장소 Contents 읽기 권한만 있는 fine-grained PAT) 을 넣습니다. **판매·배포 시에는 토큰을 나눠 줄 수 없으므로** 저장소를 공개로 바꾸거나, 바이너리만 올리는 공개 저장소(예: `yunch0315/sentry-av-releases`)를 만들고 `update_repo` 를 그곳으로 바꿔야 합니다.
+- 다운로드 파일은 반드시 같은 Release 의 `SHA256SUMS.txt` 와 일치해야 설치되며, 불일치·누락 시 아무것도 바꾸지 않습니다. 저장소 쓰기 권한(태그 푸시)을 가진 사람만 업데이트를 배포할 수 있으므로 GitHub 계정의 2단계 인증을 켜 두세요.
+
 ## 실행
 
 ```sh
@@ -109,7 +122,7 @@ kill -INT %1; cat $T/home/.sentry-av/incidents.jsonl
 
 ## 설정
 
-`~/.sentry-av/config.json` (처음 실행 시 기본값으로 생성). 주요 키: `monitor_paths`, `excluded_paths`, `whitelist_process_names`, `whitelist_path_prefixes`, `trusted_team_ids`, `kill_score`, `suspend_score`, `min_write_bytes`, `suspend_hold_seconds`, `aggressive`, `signature_urls`.
+`~/.sentry-av/config.json` (처음 실행 시 기본값으로 생성). 주요 키: `monitor_paths`, `excluded_paths`, `whitelist_process_names`, `whitelist_path_prefixes`, `trusted_team_ids`, `kill_score`, `suspend_score`, `min_write_bytes`, `suspend_hold_seconds`, `aggressive`, `signature_urls`, 자동 업데이트 `update_repo`, `auto_update`, `update_check_interval_hours`, `update_token`. 마지막 확인 시각·최신 버전은 `~/.sentry-av/update_state.json`.
 
 로그 `~/.sentry-av/sentry.log`, 사건 기록 `~/.sentry-av/incidents.jsonl`, 격리 `~/.sentry-av/quarantine/`.
 
