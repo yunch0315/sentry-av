@@ -111,9 +111,10 @@ def _startup_update_check(cfg, timeout: float = 8.0) -> None:
     prints one line and continues - the menu must never be blocked by the updater."""
     from .selfupdate import Updater, load_state, relaunch
     from .utils import is_frozen
+    up = Updater(cfg)
+    up.cleanup_backup()                  # <exe>.old left by the update we just restarted from
     if not cfg.get("auto_update", True):
         return
-    up = Updater(cfg)
     up.gh.timeout = timeout
     with console.status("업데이트 확인 중..."):
         rel = up.check()

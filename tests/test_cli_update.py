@@ -16,6 +16,9 @@ class FakeUpdater:
     def check(self):
         return self._rel
 
+    def cleanup_backup(self, target=None):
+        self.calls.append("cleanup")
+
     def download(self, rel, progress=None):
         self.calls.append("download"); return "staged"
 
@@ -48,7 +51,7 @@ def test_menu_no_longer_lists_upgrade():
 def test_startup_check_current_version_continues(cfg, wire, capsys):
     fu, relaunched = wire(_rel("0.0.1"))
     cli._startup_update_check(cfg)
-    assert fu.calls == [] and relaunched == []
+    assert fu.calls == ["cleanup"] and relaunched == []
     assert "최신 버전" in capsys.readouterr().out
 
 
@@ -61,14 +64,14 @@ def test_startup_check_offline_continues(cfg, wire, capsys):
 def test_startup_check_installs_on_enter(cfg, wire, capsys):
     fu, relaunched = wire(_rel("9.9.9"), answers=[""])
     cli._startup_update_check(cfg)
-    assert fu.calls == ["download", "install"] and len(relaunched) == 1
+    assert fu.calls == ["cleanup", "download", "install"] and len(relaunched) == 1
     assert "업데이트 완료" in capsys.readouterr().out
 
 
 def test_startup_check_skips_on_n(cfg, wire, capsys):
     fu, relaunched = wire(_rel("9.9.9"), answers=["n"])
     cli._startup_update_check(cfg)
-    assert fu.calls == [] and relaunched == []
+    assert fu.calls == ["cleanup"] and relaunched == []
     assert "건너뜁니다" in capsys.readouterr().out
 
 
@@ -76,10 +79,10 @@ def test_startup_check_disabled_by_config(cfg, wire):
     cfg.set("auto_update", False)
     fu, relaunched = wire(_rel("9.9.9"), answers=[""])
     cli._startup_update_check(cfg)
-    assert fu.calls == []
+    assert fu.calls == ["cleanup"]
 
 
 def test_startup_check_source_checkout_only_advises(cfg, wire, capsys):
     fu, relaunched = wire(_rel("9.9.9"), frozen=False, answers=[""])
     cli._startup_update_check(cfg)
-    assert fu.calls == [] and "git pull" in capsys.readouterr().out
+    assert fu.calls == ["cleanup"] and "git pull" in capsys.readouterr().out
