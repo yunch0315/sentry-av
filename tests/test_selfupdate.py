@@ -194,3 +194,26 @@ def test_relaunch_env_drops_pyinstaller_vars(monkeypatch):
     env = su._fresh_env()
     assert not [k for k in env if k.startswith("_PYI_") or k == "_MEIPASS2"]
     assert env["SENTRY_HOME"] == "/keep"
+
+
+def test_remove_backup(tmp_path):
+    target = tmp_path / "sentry"
+    old = tmp_path / "sentry.old"
+    old.write_bytes(b"x")
+    assert su.remove_backup(target) and not old.exists()
+    assert su.remove_backup(target)          # nothing left: still True
+
+
+def test_relaunch_posix_deletes_old_before_exec(tmp_path, monkeypatch):
+    if su.IS_WINDOWS:
+        pytest.skip("posix path")
+    exe = tmp_path / "sentry"
+    exe.write_bytes(b"new")
+    (tmp_path / "sentry.old").write_bytes(b"old")
+    monkeypatch.setattr(su.sys, "executable", str(exe))
+    called = {}
+    monkeypatch.setattr(su.os, "execve", lambda path, args, env: called.update(path=path, args=args, env=env))
+    su.relaunch(["--no-elevate"])
+    assert not (tmp_path / "sentry.old").exists()
+    assert called["path"] == str(exe) and called["args"] == [str(exe), "--no-elevate"]
+    assert not [k for k in called["env"] if k.startswith("_PYI_")]

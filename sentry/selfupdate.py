@@ -284,14 +284,10 @@ class Updater:
         return target
 
     def cleanup_backup(self, target: Path | None = None) -> None:
-        """Delete ``<exe>.old`` left by the previous update (no longer in use)."""
-        target = (target or self.exe).resolve()
-        backup = target.with_name(target.name + ".old")
-        if backup.exists():
-            try:
-                backup.unlink()
-            except OSError:
-                pass
+        """Delete ``<exe>.old`` left by the previous update.  On Windows the old process
+        (and its bootloader parent) may still hold the file for a moment after it started
+        us, so keep retrying briefly in the background."""
+        remove_backup((target or self.exe).resolve())
 
     def upgrade(self, progress=None, rel: Release | None = None) -> Release | None:
         """Check + download + install.  Returns the installed release or None (already current)."""
@@ -302,6 +298,35 @@ class Updater:
             raise RuntimeError(f"new version {rel.version} available but this is a source checkout: run `git pull`")
         self.install(self.download(rel, progress))
         return rel
+
+
+def remove_backup(target: Path, retry_seconds: float = 15.0) -> bool:
+    """Unlink ``<target>.old``.  True when gone; on Windows a locked file is retried in a
+    daemon thread for ``retry_seconds``."""
+    backup = Path(target).with_name(Path(target).name + ".old")
+    if not backup.exists():
+        return True
+    try:
+        backup.unlink()
+        return True
+    except OSError:
+        if not IS_WINDOWS or retry_seconds <= 0:
+            return False
+
+    def _retry():
+        deadline = time.time() + retry_seconds
+        while time.time() < deadline:
+            time.sleep(0.5)
+            try:
+                backup.unlink()
+                return
+            except FileNotFoundError:
+                return
+            except OSError:
+                continue
+
+    threading.Thread(target=_retry, name="sentry-remove-old", daemon=True).start()
+    return False
 
 
 def _retarget_frozen_archive(old_path: Path, new_path: Path) -> None:
@@ -333,13 +358,16 @@ def _fresh_env() -> dict[str, str]:
 
 
 def relaunch(argv: list[str] | None = None) -> None:
-    """Replace the current process with the (freshly installed) executable, same arguments."""
+    """Replace the current process with the (freshly installed) executable, same arguments.
+    The old binary (``<exe>.old``) is deleted here: after exec nothing needs it any more.
+    Windows cannot delete the file we are running from, so the new process does it."""
     args = [sys.executable, *(sys.argv[1:] if argv is None else argv)]
     env = _fresh_env()
     if IS_WINDOWS:
         # the running exe file was renamed to .old; start the new one and leave
         subprocess.Popen(args, env=env, close_fds=True)
         os._exit(0)
+    remove_backup(Path(sys.executable).resolve(), retry_seconds=0)
     os.execve(sys.executable, args, env)
 
 
