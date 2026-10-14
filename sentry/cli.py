@@ -101,8 +101,10 @@ def interactive_menu(cfg=None) -> list[str] | None:
         try:
             choice = input("번호를 입력하세요: ").strip()
         except (EOFError, KeyboardInterrupt):
+            _wait_for_full_feed()
             return None
         if choice in ("0", "q", ""):
+            _wait_for_full_feed()
             return None
         if choice.isdigit() and 1 <= int(choice) <= len(_MENU):
             return list(_MENU[int(choice) - 1][1])
@@ -174,7 +176,25 @@ def _refresh_signatures(cfg, force: bool = False, quiet: bool = False) -> None:
             except Exception as e:  # noqa: BLE001
                 _LOG.warning("full hash index update failed: %s", e)
 
-        threading.Thread(target=_run, name="sentry-full-feed", daemon=True).start()
+        global _FULL_FEED_THREAD
+        _FULL_FEED_THREAD = threading.Thread(target=_run, name="sentry-full-feed", daemon=True)
+        _FULL_FEED_THREAD.start()
+
+
+_FULL_FEED_THREAD = None
+
+
+def _wait_for_full_feed() -> None:
+    """Menu exit: do not kill a half-done full-dump download; let it finish (Ctrl+C skips)."""
+    t = _FULL_FEED_THREAD
+    if t is None or not t.is_alive():
+        return
+    try:
+        with console.status("전체 해시 DB 내려받는 중... (Ctrl+C 로 건너뛰면 다음에 다시 받습니다)"):
+            while t.is_alive():
+                t.join(0.5)
+    except KeyboardInterrupt:
+        console.print("[dim]건너뜁니다[/]")
 
 
 def _download_and_install(up, rel) -> bool:

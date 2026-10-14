@@ -177,10 +177,22 @@ def full_due(max_age_days: float) -> bool:
     return age is None or age >= max_age_days
 
 
+def _remove_stale_tempdirs(prefix: str) -> None:
+    """Leftovers of a download that was killed mid-way (menu closed, power loss)."""
+    for d in app_dir().glob(prefix + "*"):
+        try:
+            for p in d.iterdir():
+                p.unlink()
+            d.rmdir()
+        except OSError:
+            pass
+
+
 def update_full(url: str, timeout: float = 600.0, progress: Progress | None = None) -> dict:
     """Download the full dump and rebuild hashes_full.bin (atomic; the old index stays
     in use until the new one is complete)."""
     target = full_index_path()
+    _remove_stale_tempdirs("sentry-feed-")
     tmpdir = Path(tempfile.mkdtemp(prefix="sentry-feed-", dir=str(app_dir())))
     try:
         dump = _fetch(url, timeout, tmpdir / "full.bin", progress)

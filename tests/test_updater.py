@@ -96,3 +96,17 @@ def test_update_full_builds_index_used_by_signaturedb(cfg, monkeypatch):
     assert db.stats()["hashes_full"] == 2
     assert "full" in db.lookup_hash(H2)
     assert db.lookup_hash(H3) is None
+
+
+def test_update_full_removes_stale_tempdirs(cfg, monkeypatch):
+    stale = updater.app_dir() / "sentry-feed-stale"
+    stale.mkdir()
+    (stale / "full.bin").write_bytes(b"partial")
+    dump = _zip(**{"full_sha256.txt": TXT})
+
+    def fake_fetch(url, timeout, dest=None, progress=None):
+        Path(dest).write_bytes(dump)
+        return Path(dest)
+    monkeypatch.setattr(updater, "_fetch", fake_fetch)
+    updater.update_full("https://x/full")
+    assert not stale.exists() and not list(updater.app_dir().glob("sentry-feed-*"))
