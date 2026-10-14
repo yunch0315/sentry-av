@@ -50,8 +50,9 @@ Python 3.10+ 로 작성되었고, Windows 는 관리자 권한(UAC)으로, macOS
 
 - **배포 측**: `./release.sh 0.2.0` 이 버전을 올리고 태그 `v0.2.0` 을 푸시합니다. `.github/workflows/release.yml` 이 Windows 러너와 Apple Silicon 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64.exe`, `sentry-macos-arm64`, `SHA256SUMS.txt` 를 Release 에 올립니다(태그와 `__version__` 이 다르면 실패). 진행 확인: `gh run watch`.
 - **설치된 프로그램 측**:
-  - 어떤 명령이든 실행하면 하루에 한 번(`update_check_interval_hours`) 백그라운드에서 최신 릴리스를 확인하고, 새 버전이 있으면 한 줄로 알립니다. 메뉴 화면에도 표시됩니다.
-  - `sentry upgrade` (메뉴 9번): 확인 → 다운로드 → `SHA256SUMS.txt` 와 대조 → 실행 파일을 원자적으로 교체(이전 파일은 `sentry.old` 로 남겼다가 다음 실행 때 삭제) → 새 버전 재실행. `--check` 는 확인만(새 버전 있으면 종료 코드 3), `--yes` 는 묻지 않음.
+  - **더블클릭(메뉴) 실행 시 시작하자마자** 최신 릴리스를 확인합니다. 새 버전이 있으면 "지금 업데이트할까요? [Y/n]" 를 묻고, 엔터면 설치 후 새 버전으로 다시 시작하고, `n` 이면 그대로 메뉴로 넘어갑니다. 최신이거나 네트워크가 안 되면 한 줄만 찍고 바로 메뉴가 뜹니다(`auto_update: false` 면 확인 자체를 생략).
+  - 터미널에서 명령을 직접 실행할 때는 하루에 한 번(`update_check_interval_hours`) 백그라운드에서 확인하고, 새 버전이 있으면 한 줄로 알립니다.
+  - `sentry upgrade`: 확인 → 다운로드 → `SHA256SUMS.txt` 와 대조 → 실행 파일을 원자적으로 교체(이전 파일은 `sentry.old` 로 남겼다가 다음 실행 때 삭제) → 새 버전 재실행. `--check` 는 확인만(새 버전 있으면 종료 코드 3), `--yes` 는 묻지 않음.
   - **실시간 보호(`monitor`, 서비스 포함)** 는 `auto_update: true`(기본) 일 때 주기적으로 확인해 새 버전을 설치하고 **스스로 재시작**합니다(macOS 는 같은 PID 로 `execv`, Windows 는 새 프로세스 기동 후 종료 — 예약 작업/LaunchAgent 는 그대로 유지).
   - 소스 체크아웃(`run.sh`/`run.bat`)에서는 교체하지 않고 `git pull` 을 안내합니다.
 - 저장소가 공개이므로 사용자 PC 에는 토큰이나 GitHub 계정이 필요 없습니다. 비공개 포크에서 쓰려면 `config.json` 의 `update_repo` 를 바꾸고 `update_token`(또는 환경변수 `SENTRY_GITHUB_TOKEN`) 에 Contents 읽기 권한만 있는 fine-grained PAT 를 넣습니다.

@@ -81,14 +81,14 @@ _MENU = [
     ("격리된 파일 목록", ["quarantine", "list"]),
     ("상태 / 설정 보기", ["status"]),
     ("자가 진단 (무해한 테스트 샘플 검사)", ["selftest"]),
-    ("프로그램 업데이트 (GitHub 최신 버전 확인·설치)", ["upgrade"]),
 ]
 
 
-def interactive_menu() -> list[str] | None:
+def interactive_menu(cfg=None) -> list[str] | None:
     """Shown when launched without arguments (e.g. double-clicked). Returns argv or None to quit."""
     console.print(f"[bold]Sentry-AV {__version__}[/]  Windows/macOS 백신 + 랜섬웨어 차단")
-    _print_update_hint()
+    if cfg is not None:
+        _startup_update_check(cfg)
     console.print()
     for i, (label, _) in enumerate(_MENU, 1):
         console.print(f"  [cyan]{i}[/]. {label}")
@@ -105,12 +105,57 @@ def interactive_menu() -> list[str] | None:
         console.print("[yellow]잘못된 번호입니다.[/]")
 
 
-def _print_update_hint() -> None:
-    """One line under the banner when a newer release is known (from the last check)."""
-    from .selfupdate import load_state, is_newer
-    latest = load_state().get("latest") or ""
-    if latest and is_newer(latest):
-        console.print(f"[yellow]새 버전 {latest} 이(가) 있습니다 → 메뉴 {len(_MENU)}번 또는 `sentry upgrade`[/]")
+def _startup_update_check(cfg, timeout: float = 8.0) -> None:
+    """Interactive start: ask GitHub for the latest release right away.  If it is newer,
+    offer to install it (Enter = yes); 'n' goes on to the menu.  Network trouble just
+    prints one line and continues - the menu must never be blocked by the updater."""
+    from .selfupdate import Updater, load_state, relaunch
+    from .utils import is_frozen
+    if not cfg.get("auto_update", True):
+        return
+    up = Updater(cfg)
+    up.gh.timeout = timeout
+    with console.status("업데이트 확인 중..."):
+        rel = up.check()
+    if rel is None:
+        err = load_state().get("last_error") or ""
+        console.print(f"[dim]업데이트 확인 실패{(': ' + err[:80]) if err else ''} - 나중에 다시 시도합니다[/]")
+        return
+    if not rel.newer:
+        console.print(f"[dim]최신 버전입니다 (릴리스 {rel.tag})[/]")
+        return
+    console.print(f"[yellow]새 버전 {rel.version} 이(가) 있습니다[/] (현재 {__version__})  {rel.html_url}")
+    if not is_frozen():
+        console.print("[dim]소스에서 실행 중: `git pull` 로 갱신하세요[/]")
+        return
+    try:
+        answer = input("지금 업데이트할까요? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answer not in ("", "y", "yes"):
+        console.print("[dim]건너뜁니다. 나중에 `sentry upgrade` 로 설치할 수 있습니다[/]")
+        return
+    if _download_and_install(up, rel):
+        console.print("새 버전을 시작합니다...")
+        relaunch([a for a in sys.argv[1:]])
+
+
+def _download_and_install(up, rel) -> bool:
+    """Download + verify + swap the executable with a progress bar.  False on failure (printed)."""
+    with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=None),
+                  TimeElapsedColumn(), console=console, transient=True) as prog:
+        task = prog.add_task(f"downloading {rel.tag}", total=None)
+
+        def on_progress(done, total):
+            prog.update(task, completed=done, total=total or None)
+
+        try:
+            path = up.install(up.download(rel, on_progress))
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[red]업데이트 실패:[/] {e}")
+            return False
+    console.print(f"[bold green]업데이트 완료[/] {__version__} → {rel.version}  ({path})")
+    return True
 
 
 def _background_update_check(cfg) -> None:
@@ -214,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
         if not sys.stdin.isatty():
             build_parser().print_help()
             return 2
-        chosen = interactive_menu()
+        cfg_path = Path(argv[argv.index("--config") + 1]) if "--config" in argv else None
+        chosen = interactive_menu(load_config(cfg_path))
         if chosen is None:
             return 0
         rc = main([*argv, *chosen])
@@ -384,19 +430,8 @@ def cmd_upgrade(args, cfg) -> int:
                 return 3
         except (EOFError, KeyboardInterrupt):
             return 3
-    with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=None),
-                  TimeElapsedColumn(), console=console, transient=True) as prog:
-        task = prog.add_task(f"downloading {rel.tag}", total=None)
-
-        def on_progress(done, total):
-            prog.update(task, completed=done, total=total or None)
-
-        try:
-            path = up.install(up.download(rel, on_progress))
-        except Exception as e:  # noqa: BLE001
-            console.print(f"[red]업데이트 실패:[/] {e}")
-            return 1
-    console.print(f"[bold green]업데이트 완료[/] {__version__} → {rel.version}  ({path})")
+    if not _download_and_install(up, rel):
+        return 1
     if sys.stdin.isatty():
         try:
             if input("새 버전을 지금 실행할까요? [Y/n] ").strip().lower() in ("", "y", "yes"):
