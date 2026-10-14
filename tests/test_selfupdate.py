@@ -184,3 +184,13 @@ def test_install_retargets_pyinstaller_archive(updater, tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "pyimod02_importers", fake)
     updater.install(new, target)
     assert fake.pyz_archive._filename == str(target.with_name("sentry.old"))
+
+
+def test_relaunch_env_drops_pyinstaller_vars(monkeypatch):
+    monkeypatch.setenv("_PYI_ARCHIVE_FILE", "/x/sentry")
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", "/tmp/_MEI1")
+    monkeypatch.setenv("_MEIPASS2", "/tmp/_MEI1")
+    monkeypatch.setenv("SENTRY_HOME", "/keep")
+    env = su._fresh_env()
+    assert not [k for k in env if k.startswith("_PYI_") or k == "_MEIPASS2"]
+    assert env["SENTRY_HOME"] == "/keep"

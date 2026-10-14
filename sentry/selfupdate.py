@@ -324,14 +324,23 @@ def _strip_quarantine(path: Path) -> None:
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _fresh_env() -> dict[str, str]:
+    """Environment for a new copy of this program.  The PyInstaller bootloader tells its
+    child where it unpacked the previous version (_PYI_APPLICATION_HOME_DIR, _PYI_ARCHIVE_FILE,
+    _MEIPASS2 ...); a freshly exec'ed binary that inherits them reuses that stale directory
+    and crashes at startup, so drop them."""
+    return {k: v for k, v in os.environ.items() if not (k.startswith("_PYI_") or k == "_MEIPASS2")}
+
+
 def relaunch(argv: list[str] | None = None) -> None:
     """Replace the current process with the (freshly installed) executable, same arguments."""
     args = [sys.executable, *(sys.argv[1:] if argv is None else argv)]
+    env = _fresh_env()
     if IS_WINDOWS:
         # the running exe file was renamed to .old; start the new one and leave
-        subprocess.Popen(args, close_fds=True)
+        subprocess.Popen(args, env=env, close_fds=True)
         os._exit(0)
-    os.execv(sys.executable, args)
+    os.execve(sys.executable, args, env)
 
 
 # ---------------------------------------------------------------------------
