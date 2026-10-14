@@ -1,2 +1,2 @@
 """Sentry-AV: cross-platform (Windows/macOS) antivirus + anti-ransomware tool."""
-__version__ = "0.1.13"
+__version__ = "0.1.14"
