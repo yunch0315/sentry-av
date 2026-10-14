@@ -70,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     sv = sub.add_parser("service", help="install real-time monitor as a boot/logon service")
     sv.add_argument("action", choices=["install", "uninstall", "status"])
 
+    df = sub.add_parser("defender", help="Windows Defender exclusions for the install/data folders (Windows only)")
+    df.add_argument("action", choices=["status", "exclude", "remove"])
+
     sub.add_parser("status", help="show configuration, signature counts and incidents")
     st = sub.add_parser("selftest", help="create harmless test samples and scan them")
     st.add_argument("--keep", action="store_true")
@@ -85,6 +88,7 @@ _MENU = [
     ("격리된 파일 목록", ["quarantine", "list"]),
     ("상태 / 설정 보기", ["status"]),
     ("자가 진단 (무해한 테스트 샘플 검사)", ["selftest"]),
+    ("Windows Defender 예외에 설치 폴더 등록 (업데이트가 계속 삭제될 때)", ["defender", "exclude"]),
 ]
 
 
@@ -212,6 +216,17 @@ def _download_and_install(up, rel) -> bool:
             path = up.install(up.download(rel, on_progress))
         except Exception as e:  # noqa: BLE001
             console.print(f"[red]업데이트 실패:[/] {e}")
+            if IS_WINDOWS and "시작할 수 없어" in str(e):
+                from . import defender
+                if defender.offer_exclusion_interactively(console):
+                    console.print("다시 시도합니다...")
+                    try:
+                        path = up.install(up.download(rel, on_progress))
+                    except Exception as e2:  # noqa: BLE001
+                        console.print(f"[red]업데이트 실패:[/] {e2}")
+                        return False
+                    console.print(f"[bold green]업데이트 완료[/] {__version__} → {rel.version}  ({path})")
+                    return True
             return False
     console.print(f"[bold green]업데이트 완료[/] {__version__} → {rel.version}  ({path})")
     return True
@@ -351,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
 
     return {
         "scan": cmd_scan, "monitor": cmd_monitor, "quarantine": cmd_quarantine, "update": cmd_update,
-        "upgrade": cmd_upgrade, "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
+        "upgrade": cmd_upgrade, "defender": cmd_defender, "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
     }[args.cmd](args, cfg)
 
 
@@ -542,10 +557,30 @@ def cmd_service(args, cfg) -> int:
         if args.action == "install":
             cfg.save()  # persist resolved absolute paths for the daemon
             console.print(service.install())
+            if IS_WINDOWS:
+                from . import defender
+                if not all(defender.status().values()):
+                    console.print("[dim]Windows Defender 가 업데이트된 exe 를 지우는 일이 있으면 `sentry defender exclude` 로 "
+                                  "설치·데이터 폴더를 예외에 등록하세요.[/]")
         elif args.action == "uninstall":
             console.print(service.uninstall())
         else:
             console.print(service.status())
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/]")
+        return 1
+    return 0
+
+
+def cmd_defender(args, cfg) -> int:
+    from . import defender
+    try:
+        if args.action == "exclude":
+            console.print(defender.add_exclusions())
+        elif args.action == "remove":
+            console.print(defender.remove_exclusions())
+        else:
+            console.print_json(json.dumps(defender.status(), ensure_ascii=False))
     except RuntimeError as e:
         console.print(f"[red]{e}[/]")
         return 1
