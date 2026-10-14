@@ -170,3 +170,17 @@ def test_check_due_uses_state():
     su.save_state(last_check=__import__("time").time())
     assert not su.check_due(24)
     assert su.check_due(0)
+
+
+def test_install_retargets_pyinstaller_archive(updater, tmp_path, monkeypatch):
+    """After renaming the running exe, the PyInstaller loader must read modules from the
+    renamed file, not from the new binary that now sits at the old path."""
+    import sys, types
+    target = tmp_path / "sentry"
+    target.write_bytes(b"old")
+    new = tmp_path / _name()
+    new.write_bytes(b"new")
+    fake = types.SimpleNamespace(pyz_archive=types.SimpleNamespace(_filename=str(target)))
+    monkeypatch.setitem(sys.modules, "pyimod02_importers", fake)
+    updater.install(new, target)
+    assert fake.pyz_archive._filename == str(target.with_name("sentry.old"))

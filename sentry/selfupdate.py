@@ -268,11 +268,13 @@ class Updater:
                 pass
         if target.exists():
             os.replace(target, backup)       # rename works even while the exe is running (Windows too)
+            _retarget_frozen_archive(target, backup)
         try:
             os.replace(staged, target)
         except OSError:
             if backup.exists():
                 os.replace(backup, target)   # roll back
+                _retarget_frozen_archive(backup, target)
             raise
         try:
             new_file.parent.rmdir()
@@ -300,6 +302,20 @@ class Updater:
             raise RuntimeError(f"new version {rel.version} available but this is a source checkout: run `git pull`")
         self.install(self.download(rel, progress))
         return rel
+
+
+def _retarget_frozen_archive(old_path: Path, new_path: Path) -> None:
+    """PyInstaller one-file builds re-open the PYZ archive embedded in the executable *by
+    path* on every lazy import.  Once we rename the running executable, any later import
+    would read the new binary at the old offsets and crash (SIGSEGV seen on macOS), so
+    point the loader at the renamed file."""
+    try:
+        arc = getattr(sys.modules.get("pyimod02_importers"), "pyz_archive", None)
+        fn = getattr(arc, "_filename", None)
+        if fn and Path(fn).resolve() == Path(old_path).resolve():
+            arc._filename = str(new_path)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _strip_quarantine(path: Path) -> None:
