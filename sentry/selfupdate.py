@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__
-from .utils import IS_MACOS, IS_WINDOWS, app_dir, is_frozen, now_iso, sha256_file
+from .utils import IS_MACOS, IS_WINDOWS, app_dir, is_frozen, now_iso, sha256_file, ssl_context
 
 _LOG = logging.getLogger("sentry.selfupdate")
 DEFAULT_REPO = "yunch0315/sentry-av"
@@ -107,7 +107,7 @@ class GitHub:
         """GET with manual redirect handling: the Authorization header must NOT be
         forwarded to the storage host GitHub redirects asset downloads to."""
         req = urllib.request.Request(url, headers=self._headers(accept))
-        opener = urllib.request.build_opener(_NoRedirect)
+        opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=ssl_context()))
         for _ in range(5):
             try:
                 return opener.open(req, timeout=timeout or self.timeout)

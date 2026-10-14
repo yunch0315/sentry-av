@@ -170,6 +170,28 @@ def notify(title: str, message: str) -> None:
         pass
 
 
+_SSL_CTX = None
+
+
+def ssl_context():
+    """TLS context for outbound HTTPS.  Frozen builds made on CI ship a Python whose
+    OpenSSL has no CA bundle on the user's machine (macOS: CERTIFICATE_VERIFY_FAILED), so
+    prefer the OS trust store (truststore), then certifi's bundle, then Python's default."""
+    global _SSL_CTX
+    if _SSL_CTX is None:
+        import ssl
+        try:
+            import truststore
+            _SSL_CTX = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        except Exception:  # noqa: BLE001
+            try:
+                import certifi
+                _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+            except Exception:  # noqa: BLE001
+                _SSL_CTX = ssl.create_default_context()
+    return _SSL_CTX
+
+
 def platform_label() -> str:
     return f"{platform.system()} {platform.release()} ({platform.machine()})"
 

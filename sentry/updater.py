@@ -5,7 +5,7 @@ import logging
 import re
 import urllib.request
 
-from .utils import app_dir, now_iso
+from .utils import app_dir, now_iso, ssl_context
 
 _LOG = logging.getLogger("sentry.updater")
 _HEX64 = re.compile(r"\b([0-9a-fA-F]{64})\b")
@@ -25,7 +25,7 @@ def update_signatures(urls: list[str], timeout: float = 30.0) -> dict:
     for url in urls:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "sentry-av/0.1 (+hash-feed)"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as r:
                 body = r.read().decode("utf-8", errors="replace")
         except Exception as e:  # noqa: BLE001
             results[url] = f"failed: {e}"
