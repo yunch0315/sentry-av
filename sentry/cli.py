@@ -67,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
     wa = ws.add_parser("add"); wa.add_argument("value", help="process name (foo.exe) or path prefix")
     wr = ws.add_parser("remove"); wr.add_argument("value")
 
+    ins = sub.add_parser("install", help="copy this exe to a dedicated folder + shortcuts (+ Defender exclusion on Windows)")
+    ins.add_argument("--dir", help="install folder (default: per-user app folder)")
+    ins.add_argument("--no-desktop", action="store_true", help="do not create a Desktop shortcut")
+    ins.add_argument("--no-start-menu", action="store_true", help="do not create a Start-menu shortcut")
+    ins.add_argument("--no-defender", action="store_true", help="do not add the Windows Defender exclusion")
+    ins.add_argument("--no-launch", action="store_true", help="do not start the installed copy afterwards")
+    uns = sub.add_parser("uninstall", help="remove shortcuts, Defender exclusion and the installed exe")
+    uns.add_argument("--dir", help="install folder to remove from")
+
     sv = sub.add_parser("service", help="install real-time monitor as a boot/logon service")
     sv.add_argument("action", choices=["install", "uninstall", "status"])
 
@@ -89,6 +98,7 @@ _MENU = [
     ("상태 / 설정 보기", ["status"]),
     ("자가 진단 (무해한 테스트 샘플 검사)", ["selftest"]),
     ("Windows Defender 예외 등록 (업데이트가 계속 삭제될 때, 관리자 권한)", ["defender", "exclude"]),
+    ("전용 폴더에 설치 (바로가기 생성, 권장)", ["install"]),
 ]
 
 
@@ -96,6 +106,8 @@ def interactive_menu(cfg=None) -> list[str] | None:
     """Shown when launched without arguments (e.g. double-clicked). Returns argv or None to quit."""
     console.print(f"[bold]Sentry-AV {__version__}[/]  Windows/macOS 백신 + 랜섬웨어 차단")
     if cfg is not None:
+        if _first_run_install_wizard():
+            return None          # installed + launched the new copy; this instance is done
         _startup_update_check(cfg)
     console.print()
     for i, (label, _) in enumerate(_MENU, 1):
@@ -113,6 +125,29 @@ def interactive_menu(cfg=None) -> list[str] | None:
         if choice.isdigit() and 1 <= int(choice) <= len(_MENU):
             return list(_MENU[int(choice) - 1][1])
         console.print("[yellow]잘못된 번호입니다.[/]")
+
+
+def _first_run_install_wizard() -> bool:
+    """When the exe is run from Downloads/Desktop (a broad folder), offer to install it into
+    a dedicated folder first.  Returns True when it installed and launched the new copy."""
+    from . import installer
+    if not installer.running_from_broad_dir() or not sys.stdin.isatty():
+        return False
+    dest = installer.default_install_dir()
+    console.print(f"[yellow]현재 다운로드/바탕화면 등에서 실행 중입니다.[/] 이 위치에서는 업데이트 시 "
+                  "백신이 파일을 지울 수 있습니다.\n"
+                  f"전용 폴더에 설치하는 것을 권장합니다: [bold]{dest}[/]")
+    if IS_WINDOWS:
+        console.print("  설치하면 바탕화면·시작 메뉴 바로가기를 만들고, Defender 예외(파일 하나)를 등록합니다.")
+    try:
+        ans = input("지금 설치할까요? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    if ans not in ("", "y", "yes"):
+        console.print("[dim]설치를 건너뜁니다. 나중에 메뉴의 '설치' 또는 `sentry install` 로 설치할 수 있습니다.[/]")
+        return False
+    rc = main(["install"])
+    return rc == 0
 
 
 def _startup_update_check(cfg, timeout: float = 8.0) -> None:
@@ -404,7 +439,8 @@ def main(argv: list[str] | None = None) -> int:
 
     return {
         "scan": cmd_scan, "monitor": cmd_monitor, "quarantine": cmd_quarantine, "update": cmd_update,
-        "upgrade": cmd_upgrade, "defender": cmd_defender, "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
+        "upgrade": cmd_upgrade, "defender": cmd_defender, "install": cmd_install, "uninstall": cmd_uninstall,
+        "whitelist": cmd_whitelist, "service": cmd_service, "status": cmd_status, "selftest": cmd_selftest,
     }[args.cmd](args, cfg)
 
 
@@ -607,6 +643,52 @@ def cmd_service(args, cfg) -> int:
     except RuntimeError as e:
         console.print(f"[red]{e}[/]")
         return 1
+    return 0
+
+
+def cmd_install(args, cfg) -> int:
+    from pathlib import Path as _P
+    from . import installer
+    from .elevation import is_admin, run_elevated_and_wait
+    try:
+        res = installer.install(_P(args.dir) if args.dir else None,
+                                desktop=not args.no_desktop, start_menu=not args.no_start_menu,
+                                exclude_defender=is_admin() and not args.no_defender)
+    except RuntimeError as e:
+        console.print(f"[red]설치 실패:[/] {e}")
+        return 1
+    console.print(f"[bold green]설치 완료[/] {res.exe}")
+    if res.desktop_shortcut:
+        console.print(f"  바탕화면 바로가기: {res.desktop_shortcut}")
+    if res.startmenu_shortcut:
+        console.print(f"  시작 메뉴: {res.startmenu_shortcut}")
+    for n in res.notes:
+        console.print(f"  {n}")
+    if IS_WINDOWS and not args.no_defender and not is_admin():
+        console.print("Windows Defender 예외를 등록합니다 (관리자 권한 창이 뜹니다)...")
+        rc = run_elevated_and_wait([str(res.exe), "--no-elevate", "defender", "exclude"])
+        console.print("  Defender 예외 등록됨" if rc == 0 else "  [yellow]Defender 예외 등록을 건너뛰었습니다 (나중에 `sentry defender exclude`)[/]")
+    elif IS_WINDOWS and res.defender:
+        console.print(f"  {res.defender}")
+    if not args.no_launch and sys.stdin.isatty():
+        from .selfupdate import relaunch
+        try:
+            if input("설치한 버전을 지금 실행할까요? [Y/n] ").strip().lower() in ("", "y", "yes"):
+                import subprocess
+                subprocess.Popen([str(res.exe)], cwd=str(res.exe.parent))
+        except (EOFError, KeyboardInterrupt):
+            pass
+    return 0
+
+
+def cmd_uninstall(args, cfg) -> int:
+    from pathlib import Path as _P
+    from . import installer
+    removed = installer.uninstall(_P(args.dir) if args.dir else None)
+    if removed:
+        console.print("제거함:\n  " + "\n  ".join(removed))
+    else:
+        console.print("제거할 항목이 없습니다.")
     return 0
 
 

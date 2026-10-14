@@ -35,6 +35,10 @@ Python 3.10+ 로 작성되었고, Windows 는 관리자 권한(UAC)으로, macOS
 
 **B. 단일 실행 파일 (Python 불필요)**
 
+- **받은 exe 를 더블클릭하면 설치 마법사가 뜹니다.** 다운로드·바탕화면에서 실행하면 "전용 폴더에 설치할까요?" 를 묻고, 승낙하면:
+  - Windows: `%LOCALAPPDATA%\Programs\Sentry-AV` 로 복사하고 바탕화면·시작 메뉴 바로가기를 만들며, 그 설치된 exe 파일 하나를 Windows Defender 예외에 등록합니다(관리자 권한 창). 이후 자동 업데이트가 이 전용 폴더에서 일어나므로 더는 삭제되지 않습니다.
+  - macOS: `~/Applications/Sentry-AV` 로 복사합니다.
+  - 명령으로도 가능: `sentry install [--dir 경로] [--no-desktop] [--no-defender]`, 제거는 `sentry uninstall`.
 - 가장 쉬운 방법은 [Releases](https://github.com/yunch0315/sentry-av/releases/latest) 에서 받는 것입니다. 모든 릴리스는 GitHub Actions 가 깨끗한 러너에서 테스트·빌드·자가 진단을 거쳐 올리며, `SHA256SUMS.txt` 로 확인할 수 있습니다: `shasum -a 256 -c SHA256SUMS.txt` (Windows: `certutil -hashfile sentry-windows-x64.exe SHA256`).
 - 직접 빌드하려면 **대상 OS 위에서** 해야 합니다. Windows: `build.bat` → `dist\sentry.exe` (UAC 자동 요청 매니페스트 포함). macOS/Linux: `./build.sh` → `dist/sentry`.
 - Windows PC 가 없으면 **GitHub Actions** 로 만듭니다. `.github/workflows/build-windows.yml` 이 `main` 에 푸시될 때마다 Windows 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64` 아티팩트(`sentry.exe`)를 올립니다. 받기: `gh run download -n sentry-windows-x64 -D <폴더>`. PyInstaller 는 교차 빌드를 지원하지 않으므로 Mac 에서 직접 exe 를 만들 수는 없습니다. 수동 실행은 Actions 탭의 Run workflow.
