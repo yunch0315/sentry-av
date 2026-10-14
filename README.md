@@ -71,7 +71,11 @@ Python 3.10+ 로 작성되었고, Windows 는 관리자 권한(UAC)으로, macOS
   - 소스 체크아웃(`run.sh`/`run.bat`)에서는 교체하지 않고 `git pull` 을 안내합니다.
 - 저장소가 공개이므로 사용자 PC 에는 토큰이나 GitHub 계정이 필요 없습니다. 비공개 포크에서 쓰려면 `config.json` 의 `update_repo` 를 바꾸고 `update_token`(또는 환경변수 `SENTRY_GITHUB_TOKEN`) 에 Contents 읽기 권한만 있는 fine-grained PAT 를 넣습니다.
 - 교체 절차: 새 파일을 **실행 파일이 있는 폴더에 복사**(그 폴더의 권한을 물려받음) → 실행 중인 파일을 `<이름>.old` 로 이름 변경 → 새 파일을 원래 이름으로 → 새 파일을 `--version` 으로 한 번 실행해 **정상 기동을 확인** → 실패하면 이전 파일로 자동 복구하고 원인을 표시합니다.
-- **Windows 에서 "지정한 장치, 경로 또는 파일에 액세스할 수 없습니다" 가 뜨거나 업데이트된 exe 가 사라지면** Windows Defender 가 서명 없는 새 exe 를 악성(자가 복제·감염 등)으로 오탐한 것입니다. 보호 기록에서 "허용" 해도 다음 업데이트의 새 파일은 다시 차단되므로, 설치 폴더와 `%USERPROFILE%\.sentry-av` 를 Defender 예외에 등록해야 합니다: 메뉴 9번 또는 `sentry defender exclude` (관리자 권한, `status` 로 확인, `remove` 로 해제). 업데이트가 차단으로 실패하면 프로그램이 등록 여부를 물어봅니다. 빌드는 UPX 압축을 쓰지 않아 오탐 가능성을 낮췄지만, 근본 해결은 코드 서명 인증서(Authenticode)와 Microsoft 에 오탐 신고(https://www.microsoft.com/wdsi/filesubmission, "Software developer" 로 제출)입니다.
+- **Windows 에서 "지정한 장치, 경로 또는 파일에 액세스할 수 없습니다" 가 뜨거나 업데이트된 exe 가 사라지면** Windows Defender 가 서명 없는 자가 업데이트 exe 를 악성(자가 복제·감염 등)으로 오탐한 것입니다. 보호 기록에서 "허용" 해도 다음 업데이트의 새 파일은 다시 차단됩니다. 해결:
+  1. **먼저 exe 를 전용 폴더로 옮기세요** (예: `C:\Sentry-AV`). 다운로드·바탕화면에 둔 채로 예외를 걸면 위험하므로, 그 경우 프로그램이 등록을 거부하고 폴더를 옮기라고 안내합니다.
+  2. 메뉴 9번 또는 `sentry defender exclude` 를 실행합니다. 관리자 권한(UAC)이 자동으로 요청됩니다. **폴더 전체가 아니라 그 exe 파일 하나와 데이터 폴더 `%USERPROFILE%\.sentry-av`, 프로세스 이름만** 예외로 등록합니다. `sentry defender status` 로 확인, `remove` 로 해제.
+  3. 업데이트가 차단으로 실패하면 프로그램이 등록 여부를 물어보고, 승낙하면 UAC 창을 띄워 등록한 뒤 다시 시도합니다.
+  빌드는 UPX 압축을 쓰지 않아 오탐 가능성을 낮췄지만, VirusShare/VirusTotal 기준 Microsoft 정적 엔진은 이 파일을 탐지하지 않습니다(행위·클라우드 판정). 근본 해결은 코드 서명 인증서(Authenticode)와 Microsoft 오탐 신고(https://www.microsoft.com/wdsi/filesubmission, "Software developer" 로 제출)입니다.
 - HTTPS 는 OS 신뢰 저장소(`truststore`)로 검증하고, 안 되면 번들된 `certifi` 를 씁니다(CI 에서 빌드한 Python 은 자체 CA 번들이 없어 그냥 두면 macOS 에서 인증서 오류).
 - 다운로드 파일은 반드시 같은 Release 의 `SHA256SUMS.txt` 와 일치해야 설치되며, 불일치·누락 시 아무것도 바꾸지 않습니다. 저장소 쓰기 권한(태그 푸시)을 가진 사람만 업데이트를 배포할 수 있으므로 GitHub 계정의 2단계 인증을 켜 두세요.
 

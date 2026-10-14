@@ -87,3 +87,41 @@ def _win_quote(a: str) -> str:
 
 def _sh_quote(a: str) -> str:
     return "'" + a.replace("'", "'\\''") + "'"
+
+
+def run_elevated_and_wait(args: list[str], timeout_s: float = 120.0) -> int | None:
+    """Windows: launch ``args`` with a UAC prompt (ShellExecuteEx 'runas') and wait for it.
+
+    Returns the child's exit code, None if the user declined UAC or on error.  Used for a
+    one-off admin action (Defender exclusion) without elevating the whole program."""
+    if not IS_WINDOWS:
+        return None
+    import ctypes.wintypes as wt
+
+    class SHELLEXECUTEINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wt.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wt.HWND),
+                    ("lpVerb", wt.LPCWSTR), ("lpFile", wt.LPCWSTR), ("lpParameters", wt.LPCWSTR),
+                    ("lpDirectory", wt.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wt.HINSTANCE),
+                    ("lpIDList", ctypes.c_void_p), ("lpClass", wt.LPCWSTR), ("hkeyClass", wt.HKEY),
+                    ("dwHotKey", wt.DWORD), ("hIcon", wt.HANDLE), ("hProcess", wt.HANDLE)]
+
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+    SEE_MASK_NO_CONSOLE = 0x00008000
+    exe, *rest = args
+    params = " ".join(_win_quote(a) for a in rest)
+    sei = SHELLEXECUTEINFO()
+    sei.cbSize = ctypes.sizeof(sei)
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE
+    sei.lpVerb = "runas"
+    sei.lpFile = exe
+    sei.lpParameters = params
+    sei.nShow = 1
+    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)) or not sei.hProcess:
+        return None  # user declined UAC or launch failed
+    try:
+        ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, int(timeout_s * 1000))
+        code = wt.DWORD()
+        ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(code))
+        return int(code.value)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(sei.hProcess)

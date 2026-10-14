@@ -1,27 +1,53 @@
-"""Windows Defender helpers (Windows only, always explicit / opt-in).
+"""Windows Defender exclusions for Sentry-AV (Windows only, always explicit / opt-in).
 
-Sentry-AV is an unsigned executable that kills processes, quarantines files and replaces
-itself when it updates - behaviour that Microsoft Defender's heuristics can mistake for
-malware, deleting the freshly updated exe.  Until the binary carries a code-signing
-certificate, the reliable local fix is an exclusion for the install folder and the data
-folder.  Nothing here runs automatically: the user is asked, and `sentry defender status`
-shows exactly what is excluded.
+Sentry-AV is an unsigned executable that replaces itself when it updates - a pattern
+Microsoft Defender's behaviour engine can mistake for a self-replicating threat and delete.
+Until the binary is code-signed, a precise exclusion is the local workaround.
+
+Deliberately NARROW: we exclude the *specific exe file* and the running *process name*,
+plus the dedicated data folder (~/.sentry-av).  We never exclude the exe's parent folder,
+because that is often Downloads/Desktop - exactly where real malware lands.
 """
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
-from .utils import IS_WINDOWS, app_dir, run_cmd
+from .utils import IS_WINDOWS, app_dir, run_cmd, user_home
+
+# Folders that must never be handed to Defender as an exclusion.
+def _broad_dirs() -> set[str]:
+    h = user_home()
+    names = ["Downloads", "Desktop", "Documents", "Pictures", "Music", "Videos", "Movies", "OneDrive"]
+    out = {str(h).lower()} | {str(h / n).lower() for n in names}
+    out |= {"c:\\", "c:\\program files", "c:\\program files (x86)", "c:\\windows",
+            "c:\\windows\\system32", "c:\\users", "c:\\users\\public"}
+    return out
+
+
+def exe_path() -> Path:
+    return Path(sys.executable).resolve()
+
+
+def data_dir() -> Path:
+    return app_dir()
 
 
 def install_dir() -> Path:
-    return Path(sys.executable).resolve().parent
+    return exe_path().parent
+
+
+def install_dir_is_broad() -> bool:
+    return str(install_dir()).rstrip("\\").lower() in _broad_dirs()
 
 
 def exclusion_paths() -> list[str]:
-    return [str(install_dir()), str(app_dir())]
+    """File-level, not folder-level: the exact exe plus the dedicated data folder."""
+    return [str(exe_path()), str(data_dir())]
+
+
+def exclusion_process() -> str:
+    return exe_path().name
 
 
 def _ps(script: str, timeout: float = 60.0) -> tuple[int, str, str]:
@@ -29,55 +55,52 @@ def _ps(script: str, timeout: float = 60.0) -> tuple[int, str, str]:
                     "-Command", script], timeout=timeout)
 
 
-def current_exclusions() -> list[str]:
+def current_exclusions() -> dict[str, list[str]]:
     if not IS_WINDOWS:
-        return []
-    rc, out, _ = _ps("(Get-MpPreference).ExclusionPath -join \"`n\"")
-    return [l.strip() for l in out.splitlines() if l.strip()] if rc == 0 else []
+        return {"paths": [], "processes": []}
+    rc, out, _ = _ps("$p=Get-MpPreference; "
+                     "($p.ExclusionPath -join \"`n\") + \"`n---`n\" + ($p.ExclusionProcess -join \"`n\")")
+    if rc != 0:
+        return {"paths": [], "processes": []}
+    parts = out.split("---")
+    paths = [l.strip() for l in parts[0].splitlines() if l.strip()]
+    procs = [l.strip() for l in parts[1].splitlines() if l.strip()] if len(parts) > 1 else []
+    return {"paths": paths, "processes": procs}
 
 
 def status() -> dict:
-    cur = {p.lower().rstrip("\\") for p in current_exclusions()}
-    return {p: (p.lower().rstrip("\\") in cur) for p in exclusion_paths()}
+    cur = current_exclusions()
+    pset = {p.lower().rstrip("\\") for p in cur["paths"]}
+    proc_set = {p.lower() for p in cur["processes"]}
+    st = {p: (p.lower().rstrip("\\") in pset) for p in exclusion_paths()}
+    st[f"process:{exclusion_process()}"] = exclusion_process().lower() in proc_set
+    return st
 
 
 def add_exclusions() -> str:
     if not IS_WINDOWS:
         return "Windows Defender 예외는 Windows 에서만 등록할 수 있습니다."
+    if install_dir_is_broad():
+        raise RuntimeError(
+            f"실행 파일이 공용 폴더에 있습니다: {install_dir()}\n"
+            "다운로드·바탕화면 같은 폴더는 Defender 예외로 두면 위험합니다. "
+            "exe 를 전용 폴더(예: C:\\Sentry-AV)로 옮긴 뒤 다시 시도하세요. "
+            "(파일 하나만 예외로 넣지만, 그 폴더에 두면 매 업데이트가 같은 위험 폴더에서 실행됩니다.)")
     paths = ", ".join(f"'{p}'" for p in exclusion_paths())
-    rc, out, err = _ps(f"Add-MpPreference -ExclusionPath {paths}")
+    rc, out, err = _ps(f"Add-MpPreference -ExclusionPath {paths}; "
+                       f"Add-MpPreference -ExclusionProcess '{exclusion_process()}'")
     if rc != 0:
-        raise RuntimeError((err or out).strip() or f"Add-MpPreference failed (rc={rc}); 관리자 권한이 필요합니다")
-    return "Windows Defender 예외에 등록했습니다: " + "; ".join(exclusion_paths())
+        raise RuntimeError((err or out).strip() or f"Add-MpPreference 실패 (rc={rc}); 관리자 권한이 필요합니다")
+    return ("Windows Defender 예외에 등록했습니다:\n  파일 " + "\n  파일 ".join(exclusion_paths())
+            + f"\n  프로세스 {exclusion_process()}")
 
 
 def remove_exclusions() -> str:
     if not IS_WINDOWS:
         return "Windows Defender 예외는 Windows 에서만 다룰 수 있습니다."
     paths = ", ".join(f"'{p}'" for p in exclusion_paths())
-    rc, out, err = _ps(f"Remove-MpPreference -ExclusionPath {paths}")
+    rc, out, err = _ps(f"Remove-MpPreference -ExclusionPath {paths}; "
+                       f"Remove-MpPreference -ExclusionProcess '{exclusion_process()}'")
     if rc != 0:
-        raise RuntimeError((err or out).strip() or f"Remove-MpPreference failed (rc={rc})")
-    return "Windows Defender 예외에서 제거했습니다: " + "; ".join(exclusion_paths())
-
-
-def offer_exclusion_interactively(console) -> bool:
-    """After an update was blocked: explain and ask (default No).  True when added."""
-    if not IS_WINDOWS or not sys.stdin.isatty():
-        return False
-    console.print("[yellow]Windows Defender 가 새 실행 파일을 삭제한 것으로 보입니다.[/] "
-                  "보호 기록에서 '허용' 해도 업데이트마다 새 파일이 다시 차단됩니다.\n"
-                  "설치 폴더와 데이터 폴더를 Defender 예외에 등록하면 재발하지 않습니다:\n  "
-                  + "\n  ".join(exclusion_paths()))
-    try:
-        ans = input("지금 예외로 등록할까요? (관리자 권한 필요) [y/N] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return False
-    if ans not in ("y", "yes"):
-        return False
-    try:
-        console.print(add_exclusions())
-        return True
-    except RuntimeError as e:
-        console.print(f"[red]등록 실패:[/] {e}")
-        return False
+        raise RuntimeError((err or out).strip() or f"Remove-MpPreference 실패 (rc={rc})")
+    return "Windows Defender 예외에서 제거했습니다."

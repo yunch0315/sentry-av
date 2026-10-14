@@ -88,7 +88,7 @@ _MENU = [
     ("격리된 파일 목록", ["quarantine", "list"]),
     ("상태 / 설정 보기", ["status"]),
     ("자가 진단 (무해한 테스트 샘플 검사)", ["selftest"]),
-    ("Windows Defender 예외에 설치 폴더 등록 (업데이트가 계속 삭제될 때)", ["defender", "exclude"]),
+    ("Windows Defender 예외 등록 (업데이트가 계속 삭제될 때, 관리자 권한)", ["defender", "exclude"]),
 ]
 
 
@@ -203,6 +203,43 @@ def _wait_for_full_feed() -> None:
         console.print("[dim]건너뜁니다[/]")
 
 
+def _offer_defender_exclusion() -> bool:
+    """Blocked update on Windows: explain, ask (default No), register the exclusion with a UAC
+    prompt, and return True when it was added so the caller can retry."""
+    from . import defender
+    from .elevation import is_admin, run_elevated_and_wait
+    from .utils import self_command
+    if not IS_WINDOWS or not sys.stdin.isatty():
+        return False
+    if defender.install_dir_is_broad():
+        console.print(f"[yellow]실행 파일이 공용 폴더에 있습니다:[/] {defender.install_dir()}\n"
+                      "다운로드·바탕화면은 백신 예외로 두면 위험하므로, exe 를 전용 폴더(예: C:\\Sentry-AV)로 "
+                      "옮긴 뒤 다시 실행해 주세요.")
+        return False
+    console.print("[yellow]Windows Defender 가 새 실행 파일을 삭제한 것으로 보입니다.[/] "
+                  "보호 기록에서 '허용' 해도 업데이트마다 새 파일이 다시 차단됩니다.\n"
+                  f"이 exe 파일과 데이터 폴더만 Defender 예외에 등록합니다 (폴더 전체가 아님):\n  "
+                  + "\n  ".join(defender.exclusion_paths()))
+    try:
+        if input("지금 예외로 등록할까요? (관리자 권한 창이 뜹니다) [y/N] ").strip().lower() not in ("y", "yes"):
+            return False
+    except (EOFError, KeyboardInterrupt):
+        return False
+    try:
+        if is_admin():
+            console.print(defender.add_exclusions())
+            return True
+        rc = run_elevated_and_wait([*self_command(), "--no-elevate", "defender", "exclude"])
+        if rc == 0:
+            console.print("[green]예외를 등록했습니다.[/]")
+            return True
+        console.print("[red]예외 등록이 취소되었거나 실패했습니다.[/]")
+        return False
+    except RuntimeError as e:
+        console.print(f"[red]등록 실패:[/] {e}")
+        return False
+
+
 def _download_and_install(up, rel) -> bool:
     """Download + verify + swap the executable with a progress bar.  False on failure (printed)."""
     with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=None),
@@ -217,8 +254,7 @@ def _download_and_install(up, rel) -> bool:
         except Exception as e:  # noqa: BLE001
             console.print(f"[red]업데이트 실패:[/] {e}")
             if IS_WINDOWS and "시작할 수 없어" in str(e):
-                from . import defender
-                if defender.offer_exclusion_interactively(console):
+                if _offer_defender_exclusion():
                     console.print("다시 시도합니다...")
                     try:
                         path = up.install(up.download(rel, on_progress))
@@ -355,7 +391,9 @@ def main(argv: list[str] | None = None) -> int:
         Updater(cfg).cleanup_backup()          # <exe>.old left by a previous self-update
         _background_update_check(cfg)
 
-    if args.cmd in NEEDS_ADMIN and not args.no_elevate and not is_admin():
+    _wants_admin = args.cmd in NEEDS_ADMIN or (
+        args.cmd == "defender" and getattr(args, "action", None) in ("exclude", "remove"))
+    if _wants_admin and not args.no_elevate and not is_admin():
         ensure_admin(argv, use_sudo=args.sudo)
 
     if not is_admin() and args.cmd in NEEDS_ADMIN:
