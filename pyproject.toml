@@ -6,8 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "sentry-av"
 version = "0.1.4"
 description = "Cross-platform (Windows/macOS) antivirus and anti-ransomware tool with real-time blocking"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["psutil>=5.9", "watchdog>=3.0", "rich>=13.0", "truststore>=0.9", "certifi"]
+
+[project.urls]
+Homepage = "https://github.com/yunch0315/sentry-av"
+Releases = "https://github.com/yunch0315/sentry-av/releases"
+Issues = "https://github.com/yunch0315/sentry-av/issues"
 
 [project.optional-dependencies]
 yara = ["yara-python>=4.3"]

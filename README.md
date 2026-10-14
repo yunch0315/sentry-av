@@ -1,6 +1,19 @@
 # Sentry-AV
 
-Windows / macOS 공용 백신 + 랜섬웨어 차단 도구 (Python 3.10+). Windows 는 관리자 권한(UAC)으로, macOS 는 암호 입력 없이 현재 사용자 권한으로 실행됩니다.
+[![Release](https://img.shields.io/github/v/release/yunch0315/sentry-av?label=release)](https://github.com/yunch0315/sentry-av/releases/latest)
+[![release workflow](https://github.com/yunch0315/sentry-av/actions/workflows/release.yml/badge.svg)](https://github.com/yunch0315/sentry-av/actions/workflows/release.yml)
+[![build-windows](https://github.com/yunch0315/sentry-av/actions/workflows/build-windows.yml/badge.svg)](https://github.com/yunch0315/sentry-av/actions/workflows/build-windows.yml)
+![platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
+![python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+
+Windows / macOS 공용 백신 + 랜섬웨어 실시간 차단 도구. 파일 하나로 배포되고, GitHub Releases 에서 스스로 업데이트됩니다.
+*Cross-platform antivirus and anti-ransomware CLI for Windows and macOS: single-file executables, real-time process blocking, self-updating from GitHub Releases.*
+
+> **다운로드** → [최신 릴리스](https://github.com/yunch0315/sentry-av/releases/latest)
+> `sentry-windows-x64.exe` (Windows 10/11 64-bit) · `sentry-macos-arm64` (Apple Silicon Mac) · `SHA256SUMS.txt` (무결성 확인용)
+> 받은 파일을 더블클릭하면 번호 메뉴가 뜹니다. Python 설치가 필요 없습니다.
+
+Python 3.10+ 로 작성되었고, Windows 는 관리자 권한(UAC)으로, macOS 는 암호 입력 없이 현재 사용자 권한으로 실행됩니다.
 
 | 기능 | 설명 |
 |---|---|
@@ -22,8 +35,9 @@ Windows / macOS 공용 백신 + 랜섬웨어 차단 도구 (Python 3.10+). Windo
 
 **B. 단일 실행 파일 (Python 불필요)**
 
-- 빌드는 **대상 OS 위에서** 해야 합니다. Windows: `build.bat` → `dist\sentry.exe` (UAC 자동 요청 매니페스트 포함). macOS/Linux: `./build.sh` → `dist/sentry`.
-- Windows PC 가 없으면 **GitHub Actions** 로 만듭니다. `.github/workflows/build-windows.yml` 이 `main` 에 푸시될 때마다 Windows 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64` 아티팩트(`sentry.exe`)를 올립니다. 받기: `gh run download -n sentry-windows-x64 -D <폴더>` (저장소 `yunch0315/sentry-av`, 비공개). PyInstaller 는 교차 빌드를 지원하지 않으므로 Mac 에서 직접 exe 를 만들 수는 없습니다. 수동 실행은 Actions 탭의 Run workflow.
+- 가장 쉬운 방법은 [Releases](https://github.com/yunch0315/sentry-av/releases/latest) 에서 받는 것입니다. 모든 릴리스는 GitHub Actions 가 깨끗한 러너에서 테스트·빌드·자가 진단을 거쳐 올리며, `SHA256SUMS.txt` 로 확인할 수 있습니다: `shasum -a 256 -c SHA256SUMS.txt` (Windows: `certutil -hashfile sentry-windows-x64.exe SHA256`).
+- 직접 빌드하려면 **대상 OS 위에서** 해야 합니다. Windows: `build.bat` → `dist\sentry.exe` (UAC 자동 요청 매니페스트 포함). macOS/Linux: `./build.sh` → `dist/sentry`.
+- Windows PC 가 없으면 **GitHub Actions** 로 만듭니다. `.github/workflows/build-windows.yml` 이 `main` 에 푸시될 때마다 Windows 러너에서 테스트·빌드·자가 진단을 거쳐 `sentry-windows-x64` 아티팩트(`sentry.exe`)를 올립니다. 받기: `gh run download -n sentry-windows-x64 -D <폴더>`. PyInstaller 는 교차 빌드를 지원하지 않으므로 Mac 에서 직접 exe 를 만들 수는 없습니다. 수동 실행은 Actions 탭의 Run workflow.
 - 만들어진 파일 하나만 복사하면 됩니다. 같은 OS·CPU 아키텍처에서만 동작합니다 (`sentry-macos-arm64` 는 Apple Silicon Mac 전용, Intel Mac 은 그 Mac 에서 `./build.sh`).
 - 사용법은 동일: `sentry.exe scan`, `sentry.exe monitor`, `./sentry-macos-arm64 selftest` 등. 더블클릭으로 실행하면 번호 메뉴가 뜨고, 작업이 끝나면 "엔터를 누르면 창이 닫힙니다" 에서 엔터를 누르면 창이 닫힙니다(macOS 터미널은 Finder 로 연 창만 자동으로 닫고, 이미 쓰던 셸 창은 그대로 둠). 터미널에서 직접 실행했을 때는 이 대기 없이 바로 끝납니다. macOS 에서 서명되지 않은 바이너리는 첫 실행 시 `xattr -d com.apple.quarantine ./sentry-macos-arm64` 가 필요할 수 있습니다.
 - Windows Defender/SmartScreen 이 서명 없는 새 exe 를 경고할 수 있습니다. 프로세스를 종료하고 파일을 격리하는 도구이므로 다른 백신의 예외 목록에 설치 폴더와 `%USERPROFILE%\.sentry-av` 를 넣어 두는 것이 좋습니다.
@@ -40,7 +54,7 @@ Windows / macOS 공용 백신 + 랜섬웨어 차단 도구 (Python 3.10+). Windo
   - `sentry upgrade` (메뉴 9번): 확인 → 다운로드 → `SHA256SUMS.txt` 와 대조 → 실행 파일을 원자적으로 교체(이전 파일은 `sentry.old` 로 남겼다가 다음 실행 때 삭제) → 새 버전 재실행. `--check` 는 확인만(새 버전 있으면 종료 코드 3), `--yes` 는 묻지 않음.
   - **실시간 보호(`monitor`, 서비스 포함)** 는 `auto_update: true`(기본) 일 때 주기적으로 확인해 새 버전을 설치하고 **스스로 재시작**합니다(macOS 는 같은 PID 로 `execv`, Windows 는 새 프로세스 기동 후 종료 — 예약 작업/LaunchAgent 는 그대로 유지).
   - 소스 체크아웃(`run.sh`/`run.bat`)에서는 교체하지 않고 `git pull` 을 안내합니다.
-- **비공개 저장소**: GitHub 의 Release API 는 비공개 저장소에서 토큰이 필요합니다. 테스트용으로는 환경변수 `SENTRY_GITHUB_TOKEN` 또는 `config.json` 의 `update_token` (해당 저장소 Contents 읽기 권한만 있는 fine-grained PAT) 을 넣습니다. **판매·배포 시에는 토큰을 나눠 줄 수 없으므로** 저장소를 공개로 바꾸거나, 바이너리만 올리는 공개 저장소(예: `yunch0315/sentry-av-releases`)를 만들고 `update_repo` 를 그곳으로 바꿔야 합니다.
+- 저장소가 공개이므로 사용자 PC 에는 토큰이나 GitHub 계정이 필요 없습니다. 비공개 포크에서 쓰려면 `config.json` 의 `update_repo` 를 바꾸고 `update_token`(또는 환경변수 `SENTRY_GITHUB_TOKEN`) 에 Contents 읽기 권한만 있는 fine-grained PAT 를 넣습니다.
 - HTTPS 는 OS 신뢰 저장소(`truststore`)로 검증하고, 안 되면 번들된 `certifi` 를 씁니다(CI 에서 빌드한 Python 은 자체 CA 번들이 없어 그냥 두면 macOS 에서 인증서 오류).
 - 다운로드 파일은 반드시 같은 Release 의 `SHA256SUMS.txt` 와 일치해야 설치되며, 불일치·누락 시 아무것도 바꾸지 않습니다. 저장소 쓰기 권한(태그 푸시)을 가진 사람만 업데이트를 배포할 수 있으므로 GitHub 계정의 2단계 인증을 켜 두세요.
 
@@ -126,6 +140,12 @@ kill -INT %1; cat $T/home/.sentry-av/incidents.jsonl
 `~/.sentry-av/config.json` (처음 실행 시 기본값으로 생성). 주요 키: `monitor_paths`, `excluded_paths`, `whitelist_process_names`, `whitelist_path_prefixes`, `trusted_team_ids`, `kill_score`, `suspend_score`, `min_write_bytes`, `suspend_hold_seconds`, `aggressive`, `signature_urls`, 자동 업데이트 `update_repo`, `auto_update`, `update_check_interval_hours`, `update_token`. 마지막 확인 시각·최신 버전은 `~/.sentry-av/update_state.json`.
 
 로그 `~/.sentry-av/sentry.log`, 사건 기록 `~/.sentry-av/incidents.jsonl`, 격리 `~/.sentry-av/quarantine/`.
+
+## 문의·기여
+
+- 버그·오탐 제보: [Issues](https://github.com/yunch0315/sentry-av/issues) (템플릿에 `sentry status` 출력과 `~/.sentry-av/sentry.log` 발췌를 넣어 주세요).
+- 보안 취약점: 공개 이슈 대신 [SECURITY.md](SECURITY.md) 의 절차로 알려 주세요.
+- 개발 환경: `python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest` → `.venv/bin/python -m pytest -q`. PR 은 테스트와 함께 보내 주세요. 점수·휴리스틱 정책을 바꾸면 이 README 의 표도 같이 갱신합니다.
 
 ## 한계
 
