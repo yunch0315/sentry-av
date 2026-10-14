@@ -145,7 +145,9 @@ def _startup_update_check(cfg, timeout: float = 8.0) -> None:
         return
     if _download_and_install(up, rel):
         console.print("새 버전을 시작합니다...")
-        relaunch([a for a in sys.argv[1:]])
+        if not relaunch([a for a in sys.argv[1:]]):
+            console.print(f"[red]새 버전을 시작하지 못했습니다.[/] 파일은 교체되었으니 {up.exe} 를 직접 다시 실행하세요. "
+                          "Windows 보안의 '보호 기록' 에 차단 항목이 있는지 확인하세요.")
 
 
 def _refresh_signatures(cfg, force: bool = False, quiet: bool = False) -> None:
@@ -510,7 +512,8 @@ def cmd_upgrade(args, cfg) -> int:
     if sys.stdin.isatty():
         try:
             if input("새 버전을 지금 실행할까요? [Y/n] ").strip().lower() in ("", "y", "yes"):
-                relaunch(["--no-elevate"] if "--no-elevate" in sys.argv else [])
+                if not relaunch(["--no-elevate"] if "--no-elevate" in sys.argv else []):
+                    console.print(f"[red]새 버전을 시작하지 못했습니다.[/] {up.exe} 를 직접 다시 실행하세요.")
         except (EOFError, KeyboardInterrupt):
             pass
     return 0

@@ -241,11 +241,17 @@ class Updater:
             raise
         return dest
 
-    def install(self, new_file: Path, target: Path | None = None) -> Path:
+    def install(self, new_file: Path, target: Path | None = None, verify: bool = True) -> Path:
         """Replace ``target`` (default: the running executable) with ``new_file``.
 
-        The old file is kept next to it as ``<name>.old`` until the next successful
-        update (Windows cannot delete a running exe, but it can be renamed)."""
+        * The new binary is *copied* into the target's folder first, so it gets that folder's
+          permissions (a file moved out of %USERPROFILE%\\.sentry-av on NTFS would keep the
+          profile ACL and Windows then refuses to start it from e.g. a shared folder).
+        * The old file is renamed to ``<name>.old`` (renaming a running exe is allowed on
+          Windows), the staged copy renamed into place.
+        * The result is started once with ``--version``; if that fails (typically an
+          antivirus blocking the fresh unsigned exe) the old file is restored and the error
+          explains what to check."""
         target = (target or self.exe).resolve()
         if not is_frozen() and target == self.exe:
             raise RuntimeError("running from source: update with `git pull` (self-replace only for the built binary)")
@@ -256,7 +262,7 @@ class Updater:
         staged = target.with_name(target.name + ".new")
         if staged.exists():
             staged.unlink()
-        os.replace(new_file, staged)
+        shutil.copyfile(new_file, staged)
         if not IS_WINDOWS:
             os.chmod(staged, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
             _strip_quarantine(staged)
@@ -269,14 +275,32 @@ class Updater:
         if target.exists():
             os.replace(target, backup)       # rename works even while the exe is running (Windows too)
             _retarget_frozen_archive(target, backup)
+
+        def _rollback() -> None:
+            if backup.exists():
+                try:
+                    if target.exists():
+                        target.unlink()
+                except OSError:
+                    pass
+                os.replace(backup, target)
+                _retarget_frozen_archive(backup, target)
+
         try:
             os.replace(staged, target)
         except OSError:
-            if backup.exists():
-                os.replace(backup, target)   # roll back
-                _retarget_frozen_archive(backup, target)
+            _rollback()
             raise
+        if verify:
+            problem = verify_binary(target)
+            if problem:
+                _rollback()
+                raise RuntimeError(
+                    f"새 실행 파일을 시작할 수 없어 이전 버전으로 되돌렸습니다: {problem}\n"
+                    "Windows 라면 'Windows 보안 > 바이러스 및 위협 방지 > 보호 기록' 에서 차단된 항목을 허용하고, "
+                    "파일 속성의 '차단 해제' 를 확인한 뒤 다시 시도하세요. 설치 폴더를 백신 예외에 넣는 것도 방법입니다.")
         try:
+            new_file.unlink()
             new_file.parent.rmdir()
         except OSError:
             pass
@@ -349,6 +373,26 @@ def _strip_quarantine(path: Path) -> None:
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def verify_binary(path: Path, timeout: float = 90.0) -> str | None:
+    """Start ``path --version`` once.  None when it printed a sentry-av version, otherwise a
+    short description of what went wrong.  A launch that merely needs UAC elevation (WinError
+    740, e.g. `sentry upgrade` from a non-admin terminal) cannot be checked and passes."""
+    try:
+        kw = {"creationflags": 0x08000000} if IS_WINDOWS else {}
+        p = subprocess.run([str(path), "--no-elevate", "--version"], capture_output=True, text=True,
+                           timeout=timeout, env=_fresh_env(), errors="replace", **kw)
+    except OSError as e:
+        if IS_WINDOWS and getattr(e, "winerror", None) == 740:
+            return None
+        return f"{e.__class__.__name__}: {e}"
+    except subprocess.TimeoutExpired:
+        return f"no response within {timeout:.0f}s"
+    out = (p.stdout or "") + (p.stderr or "")
+    if p.returncode != 0 or "sentry-av" not in out:
+        return f"exit code {p.returncode}: {out.strip()[:200] or 'no output'}"
+    return None
+
+
 def _fresh_env() -> dict[str, str]:
     """Environment for a new copy of this program.  The PyInstaller bootloader tells its
     child where it unpacked the previous version (_PYI_APPLICATION_HOME_DIR, _PYI_ARCHIVE_FILE,
@@ -357,18 +401,24 @@ def _fresh_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if not (k.startswith("_PYI_") or k == "_MEIPASS2")}
 
 
-def relaunch(argv: list[str] | None = None) -> None:
+def relaunch(argv: list[str] | None = None) -> bool:
     """Replace the current process with the (freshly installed) executable, same arguments.
     The old binary (``<exe>.old``) is deleted here: after exec nothing needs it any more.
-    Windows cannot delete the file we are running from, so the new process does it."""
+    Windows cannot delete the file we are running from, so the new process does it.
+    Returns False (and logs) only when the new executable could not be started."""
     args = [sys.executable, *(sys.argv[1:] if argv is None else argv)]
     env = _fresh_env()
-    if IS_WINDOWS:
-        # the running exe file was renamed to .old; start the new one and leave
-        subprocess.Popen(args, env=env, close_fds=True)
-        os._exit(0)
-    remove_backup(Path(sys.executable).resolve(), retry_seconds=0)
-    os.execve(sys.executable, args, env)
+    try:
+        if IS_WINDOWS:
+            # the running exe file was renamed to .old; start the new one and leave
+            subprocess.Popen(args, env=env, close_fds=True)
+            os._exit(0)
+        remove_backup(Path(sys.executable).resolve(), retry_seconds=0)
+        os.execve(sys.executable, args, env)
+    except OSError as e:
+        _LOG.error("relaunch of %s failed: %s", sys.executable, e)
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

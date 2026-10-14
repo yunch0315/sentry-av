@@ -7,7 +7,7 @@ if not exist .venv\Scripts\python.exe (
   .venv\Scripts\pip install -q -r requirements.txt
 )
 .venv\Scripts\pip install -q pyinstaller
-.venv\Scripts\pyinstaller --noconfirm --clean --onefile --name sentry ^
+.venv\Scripts\pyinstaller --noconfirm --clean --onefile --noupx --name sentry ^
   --add-data "sentry\signatures;sentry\signatures" ^
   --hidden-import sentry.realtime --hidden-import sentry.scanner ^
   --collect-submodules sentry ^

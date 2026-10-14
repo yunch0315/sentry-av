@@ -22,7 +22,7 @@ jobs:
       - name: Build sentry.exe
         shell: cmd
         run: |
-          pyinstaller --noconfirm --clean --onefile --name sentry ^
+          pyinstaller --noconfirm --clean --onefile --noupx --name sentry ^
             --add-data "sentry\signatures;sentry\signatures" ^
             --hidden-import sentry.realtime --hidden-import sentry.scanner ^
             --collect-submodules sentry ^

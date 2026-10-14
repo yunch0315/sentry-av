@@ -62,6 +62,7 @@ class FakeGitHub:
 def updater(cfg, monkeypatch):
     up = su.Updater(cfg)
     monkeypatch.setattr(su, "is_frozen", lambda: True)
+    monkeypatch.setattr(su, "verify_binary", lambda path, timeout=90.0: None)   # fake binaries cannot run
     return up
 
 
@@ -127,7 +128,7 @@ def test_install_replaces_atomically_and_keeps_backup(updater, tmp_path):
     assert target.with_name("sentry.old").read_bytes() == b"old"
     if os.name != "nt":
         assert stat.S_IMODE(target.stat().st_mode) & stat.S_IXUSR
-    assert not new.exists() and not new.parent.exists()
+    assert not new.exists() and not new.parent.exists()      # download cleaned up after the copy
     assert su.load_state()["installed_from"] == _name()
 
     updater.cleanup_backup(target)
@@ -217,3 +218,40 @@ def test_relaunch_posix_deletes_old_before_exec(tmp_path, monkeypatch):
     assert not (tmp_path / "sentry.old").exists()
     assert called["path"] == str(exe) and called["args"] == [str(exe), "--no-elevate"]
     assert not [k for k in called["env"] if k.startswith("_PYI_")]
+
+
+def test_install_rolls_back_when_new_binary_does_not_run(updater, tmp_path, monkeypatch):
+    target = tmp_path / "sentry"
+    target.write_bytes(b"old")
+    new = tmp_path / "dl" / _name()
+    new.parent.mkdir()
+    new.write_bytes(b"blocked")
+    monkeypatch.setattr(su, "verify_binary", lambda path, timeout=90.0: "exit code 1: access denied")
+    with pytest.raises(RuntimeError, match="되돌렸습니다"):
+        updater.install(new, target)
+    assert target.read_bytes() == b"old"
+    assert not target.with_name("sentry.old").exists() and not target.with_name("sentry.new").exists()
+    assert new.exists()                                    # the download is kept for inspection
+
+
+def test_verify_binary_reports_failures(tmp_path):
+    script = tmp_path / "fake"
+    script.write_text("#!/bin/sh\necho sentry-av 9.9.9\n")
+    script.chmod(0o755)
+    if su.IS_WINDOWS:
+        pytest.skip("posix shell script")
+    assert su.verify_binary(script) is None
+    bad = tmp_path / "bad"
+    bad.write_text("#!/bin/sh\necho nope >&2; exit 3\n")
+    bad.chmod(0o755)
+    assert "exit code 3" in su.verify_binary(bad)
+    assert su.verify_binary(tmp_path / "missing") is not None
+
+
+def test_relaunch_reports_launch_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(su.sys, "executable", str(tmp_path / "gone"))
+    if su.IS_WINDOWS:
+        monkeypatch.setattr(su.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError(5, "denied")))
+    else:
+        monkeypatch.setattr(su.os, "execve", lambda *a: (_ for _ in ()).throw(OSError(13, "denied")))
+    assert su.relaunch([]) is False

@@ -47,7 +47,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          pyinstaller --noconfirm --clean --onefile --name sentry ^
+          pyinstaller --noconfirm --clean --onefile --noupx --name sentry ^
             --add-data "sentry\signatures;sentry\signatures" ^
             --hidden-import sentry.realtime --hidden-import sentry.scanner ^
             --collect-submodules sentry ^
@@ -56,7 +56,7 @@ jobs:
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconfirm --clean --onefile --name sentry \
+          pyinstaller --noconfirm --clean --onefile --noupx --name sentry \
             --add-data "sentry/signatures:sentry/signatures" \
             --hidden-import sentry.realtime --hidden-import sentry.scanner \
             --collect-submodules sentry \
@@ -64,6 +64,25 @@ jobs:
       - name: Smoke test (self test, no elevation)
         shell: bash
         run: ./${{ matrix.built }} --no-elevate selftest
+      - name: Self-update swap test (install + verify with the real binary)
+        shell: bash
+        run: |
+          mkdir -p swap/app swap/dl
+          cp "${{ matrix.built }}" swap/app/sentry-old
+          cp "${{ matrix.built }}" swap/dl/sentry-new
+          SENTRY_HOME="$PWD/swap/home" python - <<'EOF'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, ".")
+          from sentry.selfupdate import Updater, verify_binary
+          app = Path("swap/app/sentry-old").resolve()
+          up = Updater()
+          out = up.install(Path("swap/dl/sentry-new"), app)
+          assert out == app and app.exists(), "swap failed"
+          assert not Path("swap/dl/sentry-new").exists(), "download not cleaned"
+          assert verify_binary(app) is None, verify_binary(app)
+          print("swap + verify OK")
+          EOF
       - name: Rename asset
         shell: bash
         run: mkdir -p out && cp "${{ matrix.built }}" "out/${{ matrix.asset }}"

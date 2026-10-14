@@ -11,6 +11,7 @@ class FakeUpdater:
     def __init__(self, rel, *a, **k):
         self._rel = rel
         self.gh = types.SimpleNamespace(timeout=15)
+        self.exe = "/bin/sentry"
         self.calls = []
 
     def check(self):
@@ -39,7 +40,7 @@ def wire(cfg, monkeypatch):
         it = iter(answers)
         monkeypatch.setattr("builtins.input", lambda *_: next(it))
         relaunched = []
-        monkeypatch.setattr(su, "relaunch", lambda argv=None: relaunched.append(argv))
+        monkeypatch.setattr(su, "relaunch", lambda argv=None: relaunched.append(argv) or True)
         return fu, relaunched
     return _wire
 
