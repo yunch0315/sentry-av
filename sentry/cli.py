@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import logging
+
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from . import __version__
@@ -16,6 +18,7 @@ from .utils import IS_WINDOWS
 from .report import console, print_findings, write_json
 from .utils import app_dir, setup_logging
 
+_LOG = logging.getLogger("sentry.cli")
 NEEDS_ADMIN = {"scan", "monitor", "service"}
 
 
@@ -51,7 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     d = qs.add_parser("delete"); d.add_argument("id")
     qs.add_parser("purge")
 
-    sub.add_parser("update", help="download hash signatures from configured feeds")
+    u = sub.add_parser("update", help="download malware-hash signatures from the public feeds")
+    u.add_argument("--full", action="store_true", help="also (re)build the full MalwareBazaar index (~45 MB download)")
 
     up = sub.add_parser("upgrade", help="update this program to the latest GitHub release")
     up.add_argument("--check", action="store_true", help="only report whether a newer version exists")
@@ -124,6 +128,7 @@ def _startup_update_check(cfg, timeout: float = 8.0) -> None:
         return
     if not rel.newer:
         console.print(f"[dim]최신 버전입니다 (릴리스 {rel.tag})[/]")
+        _refresh_signatures(cfg)
         return
     console.print(f"[yellow]새 버전 {rel.version} 이(가) 있습니다[/] (현재 {__version__})  {rel.html_url}")
     if not is_frozen():
@@ -139,6 +144,37 @@ def _startup_update_check(cfg, timeout: float = 8.0) -> None:
     if _download_and_install(up, rel):
         console.print("새 버전을 시작합니다...")
         relaunch([a for a in sys.argv[1:]])
+
+
+def _refresh_signatures(cfg, force: bool = False, quiet: bool = False) -> None:
+    """Daily: pull the small recent feeds (foreground, a second or two).  Weekly: rebuild the
+    full MalwareBazaar index in a background thread (~45 MB) so the menu is never blocked."""
+    import threading
+    from . import updater
+    if force or updater.signatures_due(float(cfg.get("update_check_interval_hours", 24))):
+        try:
+            with console.status("바이러스 시그니처 갱신 중..."):
+                res = updater.update_signatures(cfg.signature_urls)
+            ok = sum(1 for v in res["feeds"].values() if v.startswith("ok"))
+            if not quiet:
+                console.print(f"[dim]시그니처 +{res['added']} (총 {res['total']:,}, 피드 {ok}/{len(res['feeds'])})[/]")
+        except Exception as e:  # noqa: BLE001
+            if not quiet:
+                console.print(f"[dim]시그니처 갱신 실패: {e}[/]")
+    days = float(cfg.get("signature_full_days", 7) or 0)
+    url = cfg.get("signature_full_url")
+    if url and days > 0 and updater.full_due(days):
+        if not quiet:
+            console.print("[dim]전체 해시 DB(약 45MB)를 백그라운드에서 내려받습니다. 끝나면 다음 검사부터 적용됩니다.[/]")
+
+        def _run():
+            try:
+                res = updater.update_full(url)
+                _LOG.info("full hash index rebuilt: %d hashes", res["count"])
+            except Exception as e:  # noqa: BLE001
+                _LOG.warning("full hash index update failed: %s", e)
+
+        threading.Thread(target=_run, name="sentry-full-feed", daemon=True).start()
 
 
 def _download_and_install(up, rel) -> bool:
@@ -172,6 +208,12 @@ def _background_update_check(cfg) -> None:
             rel = Updater(cfg).check()
             if rel and rel.newer:
                 console.print(f"[yellow]새 버전 {rel.version} 이(가) 있습니다: `sentry upgrade` 로 설치[/]")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from . import updater
+            if updater.signatures_due(float(cfg.get("update_check_interval_hours", 24))):
+                updater.update_signatures(cfg.signature_urls)
         except Exception:  # noqa: BLE001
             pass
 
@@ -397,10 +439,22 @@ def cmd_quarantine(args, cfg) -> int:
 
 
 def cmd_update(args, cfg) -> int:
-    from .updater import update_signatures
-    res = update_signatures(cfg.signature_urls)
+    from . import updater
+    res = updater.update_signatures(cfg.signature_urls)
     console.print_json(json.dumps(res, ensure_ascii=False))
-    return 0 if res["added"] or all("ok" in v for v in res["feeds"].values()) else 1
+    rc = 0 if any(v.startswith("ok") for v in res["feeds"].values()) else 1
+    url = cfg.get("signature_full_url")
+    if url and (args.full or not updater.full_index_path().exists()):
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(bar_width=None),
+                      TimeElapsedColumn(), console=console, transient=True) as prog:
+            task = prog.add_task("downloading full hash dump", total=None)
+            try:
+                full = updater.update_full(url, progress=lambda d, t: prog.update(task, completed=d, total=t or None))
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[red]full hash index failed:[/] {e}")
+                return 1
+        console.print(f"full hash index: {full['count']:,} hashes ({full['bytes'] / 1e6:.1f} MB) -> {full['file']}")
+    return rc
 
 
 def cmd_upgrade(args, cfg) -> int:
@@ -476,6 +530,7 @@ def cmd_service(args, cfg) -> int:
 
 
 def cmd_status(args, cfg) -> int:
+    from .selfupdate import load_state
     from .scanner.signatures import SignatureDB
     from .scanner.yara_engine import YaraEngine
     from .quarantine import Quarantine
@@ -485,6 +540,7 @@ def cmd_status(args, cfg) -> int:
     info = {
         "version": __version__, "admin": is_admin(), "config": str(cfg.path), "app_dir": str(app_dir()),
         "signatures": SignatureDB().stats(), "yara": YaraEngine().available,
+        "signature_updates": {k: v for k, v in load_state().items() if k.endswith("_at") or k == "full_count"},
         "quarantine_items": len(Quarantine().list()), "incidents": n_inc, "service": service.status(),
         "monitor_paths": cfg.monitor_paths, "quick_scan_paths": cfg.quick_scan_paths,
     }

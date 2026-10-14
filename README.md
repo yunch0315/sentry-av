@@ -44,6 +44,20 @@ Python 3.10+ 로 작성되었고, Windows 는 관리자 권한(UAC)으로, macOS
 
 설정·격리·로그는 어느 방식이든 사용자 홈의 `.sentry-av` 폴더에 저장되므로 프로그램 폴더는 어디에 두어도 됩니다.
 
+## 바이러스 시그니처 (공개 위협 피드)
+
+해시 시그니처는 프로그램에 내장하지 않고(EICAR 테스트 파일만 내장) 공개 피드에서 받아 `~/.sentry-av/` 에 저장합니다. 해시가 일치한 파일은 서명 여부와 관계없이 항상 보고됩니다.
+
+| 출처 | 내용 | 저장 | 갱신 |
+|---|---|---|---|
+| [MalwareBazaar](https://bazaar.abuse.ch/) recent | 최근 48시간 제보된 악성 샘플 SHA-256 | `hashes_extra.txt` (누적) | 매일, 메뉴 시작·명령 실행 시 자동 |
+| [ThreatFox](https://threatfox.abuse.ch/) recent | 최근 IOC 중 SHA-256, 악성코드 패밀리 이름 포함 | `hashes_extra.txt` (누적) | 매일 |
+| MalwareBazaar full | 전체 덤프 약 115만 개 (zip 약 45MB) | `hashes_full.bin` — 정렬된 32바이트 다이제스트 인덱스(약 37MB, mmap + 이진 탐색이라 메모리를 거의 쓰지 않음) | 7일마다 백그라운드(`signature_full_days`), 또는 `sentry update --full` |
+
+- `sentry update` 는 recent 피드를 받고, 전체 인덱스가 없으면 처음 한 번 만듭니다. `--full` 은 전체 덤프를 강제로 다시 받습니다. `sentry status` 의 `signatures.hashes_full` 과 `signature_updates` 에서 개수와 마지막 갱신 시각을 볼 수 있습니다.
+- 피드는 `config.json` 의 `signature_urls`(txt/CSV/zip 모두 가능, 64자리 16진수만 추출) 와 `signature_full_url` 로 바꿀 수 있습니다. 전체 덤프를 받고 싶지 않으면 `signature_full_days: 0`.
+- 참고: 터보백신 같은 상용 백신 사이트의 "바이러스 DB" 페이지는 악성코드 이름 목록만 제공하고 해시나 다운로드 가능한 DB 가 없어 시그니처로 쓸 수 없습니다. abuse.ch 피드는 CC0 로 공개되어 자유롭게 쓸 수 있습니다. VirusShare 의 MD5 목록(수천만 개)과 URLhaus 페이로드 덤프(약 780MB)는 크기 때문에 기본 피드에서 제외했습니다.
+
 ## 자동 업데이트 (GitHub Releases)
 
 단일 실행 파일은 GitHub Releases 에서 **스스로 새 버전으로 교체**됩니다 (`sentry/selfupdate.py`).
@@ -138,7 +152,7 @@ kill -INT %1; cat $T/home/.sentry-av/incidents.jsonl
 
 ## 설정
 
-`~/.sentry-av/config.json` (처음 실행 시 기본값으로 생성). 주요 키: `monitor_paths`, `excluded_paths`, `whitelist_process_names`, `whitelist_path_prefixes`, `trusted_team_ids`, `kill_score`, `suspend_score`, `min_write_bytes`, `suspend_hold_seconds`, `aggressive`, `signature_urls`, 자동 업데이트 `update_repo`, `auto_update`, `update_check_interval_hours`, `update_token`. 마지막 확인 시각·최신 버전은 `~/.sentry-av/update_state.json`.
+`~/.sentry-av/config.json` (기본값과 다른 키만 저장됩니다; 비어 있으면 모두 기본값). 주요 키: `monitor_paths`, `excluded_paths`, `whitelist_process_names`, `whitelist_path_prefixes`, `trusted_team_ids`, `kill_score`, `suspend_score`, `min_write_bytes`, `suspend_hold_seconds`, `aggressive`, `signature_urls`, `signature_full_url`, `signature_full_days`, 자동 업데이트 `update_repo`, `auto_update`, `update_check_interval_hours`, `update_token`. 마지막 확인 시각·최신 버전은 `~/.sentry-av/update_state.json`.
 
 로그 `~/.sentry-av/sentry.log`, 사건 기록 `~/.sentry-av/incidents.jsonl`, 격리 `~/.sentry-av/quarantine/`.
 

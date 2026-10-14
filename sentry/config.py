@@ -80,9 +80,12 @@ DEFAULTS: dict[str, Any] = {
     "trusted_signers": [],
     "trusted_team_ids": [],
     # ---- signature updates ----
-    "signature_urls": [
+    "signature_urls": [                       # small "recent" feeds, refreshed daily
         "https://bazaar.abuse.ch/export/txt/sha256/recent/",
+        "https://threatfox.abuse.ch/export/csv/sha256/recent/",
     ],
+    "signature_full_url": "https://bazaar.abuse.ch/export/txt/sha256/full/",   # ~45 MB zip, >1.1 M hashes
+    "signature_full_days": 7,                 # rebuild the full index when older than this (0 = never)
     # ---- program self-update (GitHub Releases, see selfupdate.py) ----
     "update_repo": "yunch0315/sentry-av",
     "auto_update": True,                # monitor: install new releases by itself and restart
@@ -112,8 +115,26 @@ class Config:
         return dict(self._d)
 
     def save(self) -> None:
+        """Persist only the keys that differ from the built-in defaults, so new defaults in
+        later versions (feeds, thresholds...) reach existing installs instead of being frozen
+        by a full copy written on first run."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self._d, indent=2, ensure_ascii=False), encoding="utf-8")
+        user = {k: v for k, v in self._d.items() if k not in DEFAULTS or DEFAULTS[k] != v}
+        self.path.write_text(json.dumps(user, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+# values that older versions wrote as a full default copy; map them to the current default
+_LEGACY_DEFAULTS: dict[str, list[Any]] = {
+    "signature_urls": [["https://bazaar.abuse.ch/export/txt/sha256/recent/"]],
+}
+
+
+def _migrate(user: dict[str, Any]) -> dict[str, Any]:
+    out = dict(user)
+    for key, olds in _LEGACY_DEFAULTS.items():
+        if key in out and out[key] in olds:
+            del out[key]                      # fall back to the current default
+    return out
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -123,7 +144,7 @@ def load_config(path: Path | None = None) -> Config:
         try:
             user = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(user, dict):
-                data.update(user)
+                data.update(_migrate(user))
         except (OSError, json.JSONDecodeError) as e:
             _LOG.warning("config %s unreadable (%s); using defaults", path, e)
     cfg = Config(data, path)
